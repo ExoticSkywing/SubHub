@@ -1429,6 +1429,11 @@ async function handleMisubRequest(context) {
     let isProfileExpired = false; // Moved declaration here
 
     const DEFAULT_EXPIRED_NODE = `trojan://00000000-0000-0000-0000-000000000000@127.0.0.1:443#${encodeURIComponent('您的订阅已失效')}`;
+    const EXPIRED_NOTICE_NODES = [
+        `trojan://00000000-0000-0000-0000-000000000000@127.0.0.1:443#${encodeURIComponent('获取新的节点')}`,
+        `trojan://00000000-0000-0000-0000-000000000000@127.0.0.1:443#${encodeURIComponent('请在浏览器访问')}`,
+        `trojan://00000000-0000-0000-0000-000000000000@127.0.0.1:443#${encodeURIComponent('1yo.cc')}`
+    ];
 
     if (profileIdentifier) {
 
@@ -1450,7 +1455,12 @@ async function handleMisubRequest(context) {
 
             if (isProfileExpired) {
                 subName = profile.name; // Still use profile name for filename
-                targetMisubs = [{ id: 'expired-node', url: DEFAULT_EXPIRED_NODE, name: '您的订阅已到期', isExpiredNode: true }]; // Set expired node as the only targetMisub
+                targetMisubs = [
+                    { id: 'expired-node', url: DEFAULT_EXPIRED_NODE, name: '您的订阅已到期', isExpiredNode: true },
+                    { id: 'notice-node-1', url: EXPIRED_NOTICE_NODES[0], name: '获取新的节点', isExpiredNode: true },
+                    { id: 'notice-node-2', url: EXPIRED_NOTICE_NODES[1], name: '请在浏览器访问', isExpiredNode: true },
+                    { id: 'notice-node-3', url: EXPIRED_NOTICE_NODES[2], name: '1yo.cc', isExpiredNode: true }
+                ]; // Set expired nodes with notice messages
             } else {
                 subName = profile.name;
                 const profileSubIds = new Set(profile.subscriptions);
@@ -1586,7 +1596,7 @@ async function handleMisubRequest(context) {
     if (targetFormat === 'base64') {
         let contentToEncode;
         if (isProfileExpired) {
-            contentToEncode = DEFAULT_EXPIRED_NODE + '\n'; // Return the expired node link for base64 clients
+            contentToEncode = DEFAULT_EXPIRED_NODE + '\n' + EXPIRED_NOTICE_NODES.join('\n') + '\n'; // Return the expired node and notice nodes for base64 clients
         } else {
             contentToEncode = combinedNodeList;
         }

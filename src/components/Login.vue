@@ -41,7 +41,7 @@ const submitLogin = async () => {
               <path d="M64 78a14 14 0 1 1 14-14a14 14 0 0 1-14 14Zm0-22a8 8 0 1 0 8 8a8 8 0 0 0-8-8Z"/>
           </svg>
         </div>
-        <h1 class="text-4xl font-bold bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent mb-2">MISUB</h1>
+        <h1 class="text-4xl font-bold bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent mb-2">SUBHUB</h1>
         <p class="text-gray-600 dark:text-gray-400 font-medium">请输入管理员密码以继续</p>
       </div>
 
