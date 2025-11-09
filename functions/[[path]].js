@@ -1815,7 +1815,14 @@ async function handleUserSubscription(userToken, profileId, profileToken, reques
             : config.subConfig;
         
         // 10. 生成订阅内容（使用现有逻辑）
-        const nodeLinks = await processSubscriptions(targetMisubs, config, request, profile);
+        const nodeLinks = await generateCombinedNodeList(
+            { request, env },
+            config,
+            userAgent,
+            targetMisubs,
+            '', // 不需要prepend内容
+            profile?.prefixSettings || null
+        );
         
         // 调试日志
         console.log(`[UserSub] userToken: ${userToken}, profileId: ${profileId}`);
