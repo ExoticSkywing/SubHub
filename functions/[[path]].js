@@ -1695,25 +1695,26 @@ async function generateCombinedNodeList(context, config, userAgent, misubs, prep
  * @returns {Promise<Response>} - 响应对象
  */
 async function handleUserSubscription(userToken, profileId, profileToken, request, env, config) {
-    const asyncConfig = getConfig();
-    
-    // 0. 🔒 优先检测Bot请求（保护节点隐私）
-    const userAgent = request.headers.get('User-Agent') || 'Unknown';
-    let isBotRequest = false;
-    if (asyncConfig.botDetection.ENABLED) {
-        const botKeywords = asyncConfig.botDetection.BOT_KEYWORDS.join('|');
-        const botPattern = new RegExp(botKeywords, 'i');
-        isBotRequest = botPattern.test(userAgent);
-    }
-    
-    if (isBotRequest) {
-        // 🔒 拒绝所有Bot访问，防止节点信息泄露
-        console.log(`🤖 Blocked bot/crawler request from: ${userAgent}`);
-        return new Response('Access Denied: Bot requests are not allowed', { 
-            status: 403,
-            headers: { 'Content-Type': 'text/plain' }
-        });
-    }
+    try {
+        const asyncConfig = getConfig();
+        
+        // 0. 🔒 优先检测Bot请求（保护节点隐私）
+        const userAgent = request.headers.get('User-Agent') || 'Unknown';
+        let isBotRequest = false;
+        if (asyncConfig.botDetection.ENABLED) {
+            const botKeywords = asyncConfig.botDetection.BOT_KEYWORDS.join('|');
+            const botPattern = new RegExp(botKeywords, 'i');
+            isBotRequest = botPattern.test(userAgent);
+        }
+        
+        if (isBotRequest) {
+            // 🔒 拒绝所有Bot访问，防止节点信息泄露
+            console.log(`🤖 Blocked bot/crawler request from: ${userAgent}`);
+            return new Response('Access Denied: Bot requests are not allowed', { 
+                status: 403,
+                headers: { 'Content-Type': 'text/plain' }
+            });
+        }
     
     // 1. 验证profileToken
     if (profileToken !== config.profileToken) {
@@ -1816,6 +1817,12 @@ async function handleUserSubscription(userToken, profileId, profileToken, reques
     // 10. 生成订阅内容（使用现有逻辑）
     const nodeLinks = await processSubscriptions(targetMisubs, config, request, profile);
     
+    // 调试日志
+    console.log(`[UserSub] userToken: ${userToken}, profileId: ${profileId}`);
+    console.log(`[UserSub] targetMisubs count: ${targetMisubs.length}`);
+    console.log(`[UserSub] nodeLinks length: ${nodeLinks?.length || 0}`);
+    console.log(`[UserSub] nodeLinks preview: ${nodeLinks?.substring(0, 100)}`);
+    
     // 11. 判断请求格式
     const formatParam = new URL(request.url).searchParams.get('format')?.toLowerCase();
     // 使用函数开头定义的userAgent变量
@@ -1862,6 +1869,20 @@ async function handleUserSubscription(userToken, profileId, profileToken, reques
             'Profile-Title': profile.name || config.FileName
         }
     });
+    } catch (error) {
+        // 捕获所有错误并返回详细信息
+        console.error(`[UserSub Error] ${error.message}`, error.stack);
+        const errorNode = `trojan://00000000-0000-0000-0000-000000000000@127.0.0.1:443#${encodeURIComponent('❌ 订阅处理错误')}`;
+        const errorDetails = `trojan://00000000-0000-0000-0000-000000000000@127.0.0.1:443#${encodeURIComponent('错误: ' + error.message)}`;
+        const errorContent = [errorNode, errorDetails].join('\n');
+        
+        return new Response(btoa(unescape(encodeURIComponent(errorContent))), {
+            headers: {
+                'Content-Type': 'text/plain; charset=utf-8',
+                'Content-Disposition': `attachment; filename="error.txt"`
+            }
+        });
+    }
 }
 
 // --- [核心修改] 订阅处理函数 ---
