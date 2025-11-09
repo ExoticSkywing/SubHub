@@ -1851,33 +1851,17 @@ async function handleUserSubscription(userToken, profileId, profileToken, reques
             return new Response('订阅组不匹配', { status: 403 });
         }
         
-        // 4. 首次激活（Bot已在函数开头拦截）
-        if (userData.status === 'pending') {
-            // 真实用户请求，执行激活
+        // 4. 记录是否为首次激活
+        const isFirstActivation = userData.status === 'pending';
+        
+        // 5. 首次激活处理
+        if (isFirstActivation) {
             userData.status = 'activated';
             userData.activatedAt = Date.now();
             userData.expiresAt = Date.now() + userData.duration;
-            
-            // 保存激活状态
-            await env.MISUB_KV.put(`user:${userToken}`, JSON.stringify(userData));
-            
-            // 发送Telegram通知
-            if (asyncConfig.telegram.NOTIFY_ON_ACTIVATION && config.BotToken && config.ChatID) {
-                const clientIp = request.headers.get('CF-Connecting-IP') || 'Unknown';
-                const activatedTime = new Date(userData.activatedAt).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
-                const expiresTime = new Date(userData.expiresAt).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
-                
-                await sendEnhancedTgNotification(config, '✅ 订阅已激活', request, `
-*Token:* \`${userToken}\`
-*订阅组:* \`${profileId}\`
-*客户端:* \`${userAgent}\`
-*激活时间:* \`${activatedTime}\`
-*到期时间:* \`${expiresTime}\`
-                `);
-            }
         }
         
-        // 5. 检查是否过期
+        // 6. 检查是否过期
         if (userData.expiresAt && Date.now() > userData.expiresAt) {
             const expiredNode = `trojan://00000000-0000-0000-0000-000000000000@127.0.0.1:443#${encodeURIComponent('订阅已过期')}`;
             const noticeNodes = [
@@ -1895,19 +1879,33 @@ async function handleUserSubscription(userToken, profileId, profileToken, reques
             });
         }
         
-        // 6. 更新访问统计
+        // 7. 更新访问统计
         userData.stats.totalRequests = (userData.stats.totalRequests || 0) + 1;
         userData.stats.lastRequest = Date.now();
         await env.MISUB_KV.put(`user:${userToken}`, JSON.stringify(userData));
         
-        // 6.5 发送访问通知（每次访问都通知，与二段式行为一致）
+        // 8. 发送Telegram通知
         if (config.BotToken && config.ChatID) {
             const domain = new URL(request.url).hostname;
             const lastAccessTime = new Date(userData.stats.lastRequest).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
             const expiresTime = userData.expiresAt ? new Date(userData.expiresAt).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }) : 'N/A';
-            const statusEmoji = userData.status === 'activated' ? '✅' : '🔄';
             
-            const additionalData = `*域名:* \`${domain}\`
+            if (isFirstActivation) {
+                // 首次激活：发送激活通知（包含所有信息）
+                const activatedTime = new Date(userData.activatedAt).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
+                const additionalData = `*域名:* \`${domain}\`
+*客户端:* \`${userAgent}\`
+*Token:* \`${userToken}\`
+*订阅组:* \`${profileId}\`
+*总访问次数:* \`${userData.stats.totalRequests}\`
+*激活时间:* \`${activatedTime}\`
+*到期时间:* \`${expiresTime}\``;
+                
+                context.waitUntil(sendEnhancedTgNotification(config, '✅ *订阅已激活*', request, additionalData));
+            } else {
+                // 后续访问：发送访问通知
+                const statusEmoji = '✅';
+                const additionalData = `*域名:* \`${domain}\`
 *客户端:* \`${userAgent}\`
 *Token:* \`${userToken}\`
 *订阅组:* \`${profileId}\`
@@ -1915,12 +1913,12 @@ async function handleUserSubscription(userToken, profileId, profileToken, reques
 *总访问次数:* \`${userData.stats.totalRequests}\`
 *上次访问:* \`${lastAccessTime}\`
 *到期时间:* \`${expiresTime}\``;
-            
-            // 使用waitUntil异步发送，不阻塞响应（与二段式行为一致）
-            context.waitUntil(sendEnhancedTgNotification(config, '🛰️ *订阅被访问*', request, additionalData));
+                
+                context.waitUntil(sendEnhancedTgNotification(config, '🛰️ *订阅被访问*', request, additionalData));
+            }
         }
         
-        // 7. 加载订阅组配置
+        // 9. 加载订阅组配置
         const storageAdapter = await getStorageAdapter(env);
         const allProfiles = await storageAdapter.get(KV_KEY_PROFILES) || [];
         const profile = allProfiles.find(p => 
