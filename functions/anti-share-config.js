@@ -1,0 +1,158 @@
+/**
+ * 反共享机制配置
+ * 所有关键参数集中管理，方便测试和调整
+ */
+
+// ============================================
+// 反共享核心配置
+// ============================================
+export const ANTI_SHARE_CONFIG = {
+  // 设备限制
+  MAX_DEVICES: 2,              // 最大设备数量（测试建议：2）
+  CITY_CHECK_START_INDEX: 0,  // 从第几台设备开始检测城市（0-based，2=第3台）
+  
+  // 访问次数限制（可选功能，默认关闭）
+  RATE_LIMIT_ENABLED: false,   // 是否启用访问次数限制
+  RATE_LIMITS: {
+    1: 2,   // 1台设备：3次/天（测试建议：3次）
+    2: 4,   // 2台设备：5次/天（测试建议：5次）
+    3: 6,   // 3台设备：7次/天
+    4: 8    // 4台设备：9次/天
+  }
+};
+
+// ============================================
+// 批量生成配置
+// ============================================
+export const BATCH_GENERATE_CONFIG = {
+  MAX_TOKENS_PER_BATCH: 10,  // 单次最多生成数量（测试建议：10）
+  MIN_TOKENS_PER_BATCH: 1,     // 单次最少生成数量
+  TOKEN_LENGTH: 4,              // Token长度（测试建议：4-6）
+  TOKEN_CHARSET: 'abcdefghijklmnopqrstuvwxyz0123456789',  // Token字符集
+  
+  // 默认有效期（天）
+  // 常用值参考：
+  //   1分钟 = 1/1440 (约 0.000694)
+  //   5分钟 = 5/1440 (约 0.003472)
+  //   1小时 = 1/24 (约 0.041667)
+  //   1天 = 1
+  //   30天 = 30
+  DEFAULT_DURATION_DAYS: 1/1440,    // 默认有效期：1分钟（测试用）
+  MAX_DURATION_DAYS: 3650           // 最大有效期（10年）
+};
+
+// ============================================
+// 数据清理配置
+// ============================================
+export const CLEANUP_CONFIG = {
+  EXPIRED_GRACE_PERIOD_DAYS: 0,   // 过期后保留多少天再清理（测试建议：0天即立即清理）
+  CITY_EXPIRY_DAYS: 180,           // 城市记录过期天数，超过此天数未访问的城市会被清理（测试建议：禁用）
+  ENABLE_CITY_EXPIRY: false        // 是否启用城市记录过期清理
+};
+
+// ============================================
+// 城市数据配置
+// ============================================
+export const CITY_CONFIG = {
+  // 城市名称标准化（统一转小写）
+  NORMALIZE_CASE: true,
+  
+  // 是否记录城市访问统计
+  ENABLE_CITY_STATS: true,
+  
+  // 最多记录多少个城市（防止无限增长）（0=不限制）
+  MAX_CITIES_PER_DEVICE: 3  // 测试建议：5
+};
+
+// ============================================
+// GeoIP API 配置
+// ============================================
+export const GEOIP_CONFIG = {
+  // API优先级顺序
+  API_PRIORITY: [
+    'ipdata.co',      // 1. ipdata.co（最优先）
+    'ipwhois.io',     // 2. ipwhois.io
+    'ip-api.com',     // 3. ip-api.com
+    'ipgeolocation.io', // 4. ipgeolocation.io（降级）
+    'cloudflare'      // 5. Cloudflare（最后降级）
+  ],
+  
+  // API请求超时时间（毫秒）
+  API_TIMEOUT_MS: 3000,  // 测试建议：1000（更快失败）
+  
+  // 提取城市字段名（不同API字段名可能不同）
+  CITY_FIELD_NAMES: ['city', 'City', 'CITY']
+};
+
+// ============================================
+// Telegram通知配置
+// ============================================
+export const TELEGRAM_CONFIG = {
+  // 是否启用激活通知
+  NOTIFY_ON_ACTIVATION: true,
+  
+  // 是否启用反共享检测通知
+  NOTIFY_ON_ANTI_SHARE_TRIGGER: true,
+  
+  // 是否启用过期通知
+  NOTIFY_ON_EXPIRY: false,
+  
+  // 是否启用设备绑定通知
+  NOTIFY_ON_DEVICE_BIND: true
+};
+
+// ============================================
+// 测试模式配置
+// ============================================
+export const TEST_MODE = {
+  // 是否启用测试模式（会输出更多日志）
+  ENABLED: false,
+  
+  // 测试模式下的快捷配置
+  QUICK_CONFIG: {
+    MAX_DEVICES: 2,
+    TOKEN_LENGTH: 4,
+    MAX_TOKENS_PER_BATCH: 10,
+    DEFAULT_DURATION_DAYS: 1,  // 1天
+    RATE_LIMITS: { 1: 3, 2: 5 }
+  }
+};
+
+// ============================================
+// 辅助函数：获取当前配置
+// ============================================
+export function getConfig() {
+  if (TEST_MODE.ENABLED) {
+    return {
+      antiShare: {
+        ...ANTI_SHARE_CONFIG,
+        MAX_DEVICES: TEST_MODE.QUICK_CONFIG.MAX_DEVICES,
+        RATE_LIMITS: TEST_MODE.QUICK_CONFIG.RATE_LIMITS
+      },
+      batchGenerate: {
+        ...BATCH_GENERATE_CONFIG,
+        TOKEN_LENGTH: TEST_MODE.QUICK_CONFIG.TOKEN_LENGTH,
+        MAX_TOKENS_PER_BATCH: TEST_MODE.QUICK_CONFIG.MAX_TOKENS_PER_BATCH,
+        DEFAULT_DURATION_DAYS: TEST_MODE.QUICK_CONFIG.DEFAULT_DURATION_DAYS
+      },
+      cleanup: CLEANUP_CONFIG,
+      city: CITY_CONFIG,
+      geoip: GEOIP_CONFIG,
+      telegram: TELEGRAM_CONFIG
+    };
+  }
+  
+  return {
+    antiShare: ANTI_SHARE_CONFIG,
+    batchGenerate: BATCH_GENERATE_CONFIG,
+    cleanup: CLEANUP_CONFIG,
+    city: CITY_CONFIG,
+    geoip: GEOIP_CONFIG,
+    telegram: TELEGRAM_CONFIG
+  };
+}
+
+// ============================================
+// 导出默认配置
+// ============================================
+export default getConfig();

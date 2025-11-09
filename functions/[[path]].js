@@ -1,5 +1,6 @@
 import yaml from 'js-yaml';
 import { StorageFactory, DataMigrator, STORAGE_TYPES } from './storage-adapter.js';
+import { getConfig, TEST_MODE } from './anti-share-config.js';
 
 /**
  * 修复Clash配置中的WireGuard问题
@@ -297,6 +298,44 @@ function getCountryEmoji(countryCode) {
     .split('')
     .map(char => 127397 + char.charCodeAt());
   return String.fromCodePoint(...codePoints);
+}
+
+/**
+ * 生成随机用户Token
+ * @param {number} length - Token长度
+ * @returns {string} - 随机Token
+ */
+function generateRandomToken(length) {
+  const config = getConfig();
+  const charset = config.batchGenerate.TOKEN_CHARSET;
+  let token = '';
+  for (let i = 0; i < length; i++) {
+    token += charset[Math.floor(Math.random() * charset.length)];
+  }
+  return token;
+}
+
+/**
+ * 生成唯一的用户Token（确保不与现有Token冲突）
+ * @param {Object} env - Cloudflare环境对象
+ * @param {number} length - Token长度
+ * @returns {Promise<string>} - 唯一Token
+ */
+async function generateUniqueUserToken(env, length) {
+  let token;
+  let attempts = 0;
+  const maxAttempts = 100;
+  
+  do {
+    token = generateRandomToken(length);
+    const exists = await env.MISUB_KV.get(`user:${token}`);
+    if (!exists) {
+      return token;
+    }
+    attempts++;
+  } while (attempts < maxAttempts);
+  
+  throw new Error('无法生成唯一Token，请稍后重试');
 }
 
 /**
@@ -1170,6 +1209,117 @@ async function handleApiRequest(request, env) {
             }
         }
 
+        case '/batch-generate': {
+            if (request.method === 'POST') {
+                try {
+                    const { profileId, count, duration } = await request.json();
+                    const config = getConfig();
+                    
+                    // 参数验证
+                    if (!profileId || !count || !duration) {
+                        return new Response(JSON.stringify({ 
+                            success: false, 
+                            error: '缺少必需参数：profileId, count, duration' 
+                        }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+                    }
+                    
+                    if (count < config.batchGenerate.MIN_TOKENS_PER_BATCH || count > config.batchGenerate.MAX_TOKENS_PER_BATCH) {
+                        return new Response(JSON.stringify({ 
+                            success: false, 
+                            error: `生成数量必须在 ${config.batchGenerate.MIN_TOKENS_PER_BATCH}-${config.batchGenerate.MAX_TOKENS_PER_BATCH} 之间` 
+                        }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+                    }
+                    
+                    if (duration < 1 || duration > config.batchGenerate.MAX_DURATION_DAYS) {
+                        return new Response(JSON.stringify({ 
+                            success: false, 
+                            error: `有效期必须在 1-${config.batchGenerate.MAX_DURATION_DAYS} 天之间` 
+                        }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+                    }
+                    
+                    // 获取设置（用于构建URL）
+                    const storageAdapter = await getStorageAdapter(env);
+                    const settings = await storageAdapter.get(KV_KEY_SETTINGS) || {};
+                    const mergedConfig = { ...defaultSettings, ...settings };
+                    
+                    // 验证订阅组是否存在
+                    const allProfiles = await storageAdapter.get(KV_KEY_PROFILES) || [];
+                    const profile = allProfiles.find(p => 
+                        (p.customId && p.customId === profileId) || p.id === profileId
+                    );
+                    
+                    if (!profile) {
+                        return new Response(JSON.stringify({ 
+                            success: false, 
+                            error: '订阅组不存在' 
+                        }), { status: 404, headers: { 'Content-Type': 'application/json' } });
+                    }
+                    
+                    // 批量生成Token
+                    const tokens = [];
+                    const durationMs = duration * 24 * 60 * 60 * 1000;
+                    const createdAt = Date.now();
+                    
+                    for (let i = 0; i < count; i++) {
+                        const userToken = await generateUniqueUserToken(env, config.batchGenerate.TOKEN_LENGTH);
+                        
+                        // 创建用户数据
+                        const userData = {
+                            userToken,
+                            profileId,
+                            status: 'pending',
+                            createdAt,
+                            activatedAt: null,
+                            expiresAt: null,
+                            duration: durationMs,
+                            devices: {},
+                            stats: {
+                                totalRequests: 0,
+                                lastRequest: null,
+                                dailyCount: 0,
+                                dailyDate: null
+                            }
+                        };
+                        
+                        // 存储到KV
+                        await env.MISUB_KV.put(`user:${userToken}`, JSON.stringify(userData));
+                        
+                        // 构建URL（三段式）
+                        const hostname = new URL(request.url).host;
+                        const url = `https://${hostname}/${mergedConfig.profileToken}/${profileId}/${userToken}`;
+                        
+                        tokens.push({
+                            token: userToken,
+                            url,
+                            status: 'pending',
+                            createdAt
+                        });
+                    }
+                    
+                    // 发送Telegram通知
+                    if (mergedConfig.BotToken && mergedConfig.ChatID) {
+                        const message = `🎫 *批量生成订阅链接*\n\n*订阅组:* \`${profile.name}\`\n*数量:* ${count}\n*有效期:* ${duration}天\n*时间:* ${new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}`;
+                        await sendTgNotification(mergedConfig, message);
+                    }
+                    
+                    return new Response(JSON.stringify({
+                        success: true,
+                        count: tokens.length,
+                        tokens,
+                        profileName: profile.name
+                    }), { headers: { 'Content-Type': 'application/json' } });
+                    
+                } catch (error) {
+                    console.error('[API Error /batch-generate]', error);
+                    return new Response(JSON.stringify({ 
+                        success: false, 
+                        error: `批量生成失败: ${error.message}` 
+                    }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+                }
+            }
+            return new Response('Method Not Allowed', { status: 405 });
+        }
+
         case '/settings': {
             if (request.method === 'GET') {
                 try {
@@ -1525,6 +1675,165 @@ async function generateCombinedNodeList(context, config, userAgent, misubs, prep
     return finalNodeList;
 }
 
+/**
+ * 处理用户订阅请求（三段式URL）
+ * @param {string} userToken - 用户Token
+ * @param {string} profileId - 订阅组ID
+ * @param {string} profileToken - 订阅组Token
+ * @param {Request} request - 请求对象
+ * @param {Object} env - 环境变量
+ * @param {Object} config - 配置对象
+ * @returns {Promise<Response>} - 响应对象
+ */
+async function handleUserSubscription(userToken, profileId, profileToken, request, env, config) {
+    const asyncConfig = getConfig();
+    
+    // 1. 验证profileToken
+    if (profileToken !== config.profileToken) {
+        return new Response('Invalid Profile Token', { status: 403 });
+    }
+    
+    // 2. 加载用户数据
+    const userDataRaw = await env.MISUB_KV.get(`user:${userToken}`);
+    if (!userDataRaw) {
+        return new Response('订阅链接无效或已被删除', { status: 404 });
+    }
+    
+    const userData = JSON.parse(userDataRaw);
+    
+    // 3. 验证profileId匹配
+    if (userData.profileId !== profileId) {
+        return new Response('订阅组不匹配', { status: 403 });
+    }
+    
+    // 4. 首次激活
+    if (userData.status === 'pending') {
+        userData.status = 'activated';
+        userData.activatedAt = Date.now();
+        userData.expiresAt = Date.now() + userData.duration;
+        
+        // 保存激活状态
+        await env.MISUB_KV.put(`user:${userToken}`, JSON.stringify(userData));
+        
+        // 发送Telegram通知
+        if (asyncConfig.telegram.NOTIFY_ON_ACTIVATION && config.BotToken && config.ChatID) {
+            const clientIp = request.headers.get('CF-Connecting-IP') || 'Unknown';
+            const userAgent = request.headers.get('User-Agent') || 'Unknown';
+            const activatedTime = new Date(userData.activatedAt).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
+            const expiresTime = new Date(userData.expiresAt).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
+            
+            await sendEnhancedTgNotification(config, '✅ 订阅已激活', request, `
+*Token:* \`${userToken}\`
+*订阅组:* \`${profileId}\`
+*客户端:* \`${userAgent}\`
+*激活时间:* \`${activatedTime}\`
+*到期时间:* \`${expiresTime}\`
+            `);
+        }
+    }
+    
+    // 5. 检查是否过期
+    if (userData.expiresAt && Date.now() > userData.expiresAt) {
+        const expiredNode = `trojan://00000000-0000-0000-0000-000000000000@127.0.0.1:443#${encodeURIComponent('订阅已过期')}`;
+        const noticeNodes = [
+            `trojan://00000000-0000-0000-0000-000000000000@127.0.0.1:443#${encodeURIComponent('请续费或联系服务商')}`,
+            `trojan://00000000-0000-0000-0000-000000000000@127.0.0.1:443#${encodeURIComponent('Token: ' + userToken)}`
+        ];
+        
+        return new Response([expiredNode, ...noticeNodes].join('\n'), {
+            headers: {
+                'Content-Type': 'text/plain; charset=utf-8',
+                'Content-Disposition': `attachment; filename="${config.FileName}.txt"`,
+                'Subscription-UserInfo': `upload=0; download=0; total=0; expire=${Math.floor(userData.expiresAt / 1000)}`
+            }
+        });
+    }
+    
+    // 6. 更新访问统计
+    userData.stats.totalRequests = (userData.stats.totalRequests || 0) + 1;
+    userData.stats.lastRequest = Date.now();
+    await env.MISUB_KV.put(`user:${userToken}`, JSON.stringify(userData));
+    
+    // 7. 加载订阅组配置
+    const storageAdapter = await getStorageAdapter(env);
+    const allProfiles = await storageAdapter.get(KV_KEY_PROFILES) || [];
+    const profile = allProfiles.find(p => 
+        (p.customId && p.customId === profileId) || p.id === profileId
+    );
+    
+    if (!profile || !profile.enabled) {
+        return new Response('订阅组不存在或已禁用', { status: 404 });
+    }
+    
+    // 8. 加载所有订阅和手动节点
+    const allMisubs = await storageAdapter.get(KV_KEY_SUBS) || [];
+    const profileSubIds = new Set(profile.subscriptions || []);
+    const profileNodeIds = new Set(profile.manualNodes || []);
+    
+    const targetMisubs = allMisubs.filter(item => {
+        const isSubscription = item.url.startsWith('http');
+        const isManualNode = !isSubscription;
+        const belongsToProfile = (isSubscription && profileSubIds.has(item.id)) || 
+                                (isManualNode && profileNodeIds.has(item.id));
+        return item.enabled && belongsToProfile;
+    });
+    
+    // 9. 获取订阅组的配置
+    const effectiveSubConverter = profile.subConverter && profile.subConverter.trim() !== '' 
+        ? profile.subConverter 
+        : config.subConverter;
+    const effectiveSubConfig = profile.subConfig && profile.subConfig.trim() !== '' 
+        ? profile.subConfig 
+        : config.subConfig;
+    
+    // 10. 生成订阅内容（使用现有逻辑）
+    const nodeLinks = await processSubscriptions(targetMisubs, config, request, profile);
+    
+    // 11. 判断请求格式
+    const formatParam = new URL(request.url).searchParams.get('format')?.toLowerCase();
+    const userAgent = request.headers.get('User-Agent') || '';
+    const preferClash = userAgent.toLowerCase().includes('clash') || formatParam === 'clash';
+    
+    let finalContent;
+    let contentType = 'text/plain; charset=utf-8';
+    let filename = `${profile.name || config.FileName}.txt`;
+    
+    if (preferClash || formatParam === 'yaml') {
+        // Clash格式
+        try {
+            const clashConfig = yaml.load(effectiveSubConfig || '{}');
+            clashConfig.proxies = [];
+            
+            // 解析节点链接并转换为Clash格式（这里简化处理，实际需要完整的转换逻辑）
+            const lines = nodeLinks.split('\n').filter(line => line.trim());
+            for (const line of lines) {
+                // TODO: 完整的节点解析和转换逻辑
+                // 这里暂时保留原始链接
+            }
+            
+            finalContent = yaml.dump(clashConfig);
+            contentType = 'text/yaml; charset=utf-8';
+            filename = `${profile.name || config.FileName}.yaml`;
+        } catch (e) {
+            finalContent = nodeLinks;
+        }
+    } else {
+        // 原始格式或Base64
+        finalContent = nodeLinks;
+    }
+    
+    // 12. 返回订阅内容
+    return new Response(finalContent, {
+        headers: {
+            'Content-Type': contentType,
+            'Content-Disposition': `attachment; filename="${filename}"`,
+            'Subscription-UserInfo': `upload=0; download=0; total=10737418240; expire=${Math.floor(userData.expiresAt / 1000)}`,
+            'Profile-Update-Interval': '24',
+            'Profile-Title': profile.name || config.FileName
+        }
+    });
+}
+
 // --- [核心修改] 订阅处理函数 ---
 async function handleMisubRequest(context) {
     const { request, env } = context;
@@ -1545,15 +1854,32 @@ async function handleMisubRequest(context) {
 
     let token = '';
     let profileIdentifier = null;
+    let userToken = null;  // 新增：用户Token（三段式URL）
     const pathSegments = url.pathname.replace(/^\/sub\//, '/').split('/').filter(Boolean);
 
-    if (pathSegments.length > 0) {
+    if (pathSegments.length === 3) {
+        // 三段式：/profileToken/profileId/userToken
+        token = pathSegments[0];              // "publicshare"
+        profileIdentifier = pathSegments[1];  // "gyshare"
+        userToken = pathSegments[2];          // "a3f5d8e2"
+    }
+    else if (pathSegments.length === 2) {
+        // 双段式：/profileToken/profileId（现有逻辑）
         token = pathSegments[0];
-        if (pathSegments.length > 1) {
-            profileIdentifier = pathSegments[1];
-        }
-    } else {
+        profileIdentifier = pathSegments[1];
+    }
+    else if (pathSegments.length === 1) {
+        // 单段式：/mytoken（现有逻辑）
+        token = pathSegments[0];
+    }
+    else {
+        // 查询参数（兜底）
         token = url.searchParams.get('token');
+    }
+    
+    // 如果是三段式URL（用户订阅），使用专门的处理函数
+    if (userToken) {
+        return await handleUserSubscription(userToken, profileIdentifier, token, request, env, config);
     }
 
     let targetMisubs;
