@@ -56,6 +56,11 @@ const loadSettings = async () => {
   try {
     settings.value = await fetchSettings();
     
+    // 确保 GeoIPSource 有默认值（向后兼容）
+    if (!settings.value.GeoIPSource) {
+      settings.value.GeoIPSource = 'cloudflare';
+    }
+    
     // 加载前缀配置，支持向后兼容
     if (settings.value.prefixConfig) {
       prefixConfig.value = {
@@ -259,6 +264,40 @@ watch(() => props.show, (newValue) => {
             type="text" id="tgChatID" v-model="settings.ChatID"
             class="mt-1 block w-full px-3 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-md shadow-xs focus:outline-hidden focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm dark:text-white"
           >
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">地理信息来源</label>
+          <div class="space-y-3">
+            <div class="flex items-center">
+              <input
+                id="geo-cloudflare"
+                type="radio"
+                value="cloudflare"
+                v-model="settings.GeoIPSource"
+                class="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 dark:border-gray-600 dark:bg-gray-800"
+              >
+              <label for="geo-cloudflare" class="ml-3 block text-sm text-gray-700 dark:text-gray-300">
+                Cloudflare 原生数据（推荐，免费快速）
+              </label>
+            </div>
+            <div class="flex items-center">
+              <input
+                id="geo-ipapi"
+                type="radio"
+                value="ip-api"
+                v-model="settings.GeoIPSource"
+                class="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 dark:border-gray-600 dark:bg-gray-800"
+              >
+              <label for="geo-ipapi" class="ml-3 block text-sm text-gray-700 dark:text-gray-300">
+                ip-api.com（中文城市名，有速率限制）
+              </label>
+            </div>
+            <div class="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
+              <p class="text-xs text-blue-600 dark:text-blue-400">
+                💡 提示：Cloudflare 原生数据完全免费且速度极快，无需外部 API 请求。ip-api 提供中文城市名，但免费版限制 45 次/分钟。
+              </p>
+            </div>
+          </div>
         </div>
         <div>
           <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">节点名前缀设置</label>
