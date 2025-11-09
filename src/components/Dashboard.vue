@@ -21,6 +21,7 @@ const SettingsModal = defineAsyncComponent(() => import('./SettingsModal.vue'));
 const BulkImportModal = defineAsyncComponent(() => import('./BulkImportModal.vue'));
 const ProfileModal = defineAsyncComponent(() => import('./ProfileModal.vue'));
 const SubscriptionImportModal = defineAsyncComponent(() => import('./SubscriptionImportModal.vue'));
+const BatchGenerateModal = defineAsyncComponent(() => import('./BatchGenerateModal.vue'));
 
 // --- 基礎 Props 和狀態 ---
 const props = defineProps({ data: Object });
@@ -71,6 +72,8 @@ const showBulkImportModal = ref(false);
 const showDeleteSubsModal = ref(false);
 const showDeleteNodesModal = ref(false);
 const showSubscriptionImportModal = ref(false);
+const showBatchGenerateModal = ref(false);
+const batchGenerateProfile = ref(null);
 // --- 初始化與生命週期 ---
 const initializeState = () => {
   isLoading.value = true;
@@ -301,6 +304,14 @@ const handleEditNode = (nodeId) => {
     showNodeModal.value = true;
   }
 };
+const handleBatchGenerate = (profileId) => {
+  const profile = profiles.value.find(p => p.id === profileId);
+  if (profile) {
+    batchGenerateProfile.value = profile;
+    showBatchGenerateModal.value = true;
+  }
+};
+
 const handleNodeUrlInput = (event) => {
   if (!editingNode.value) return;
   const newUrl = event.target.value;
@@ -428,12 +439,14 @@ const formattedTotalRemainingTraffic = computed(() => formatBytes(totalRemaining
           @deleteAll="showDeleteProfilesModal = true"
           @toggle="handleProfileToggle"
           @copyLink="copyProfileLink"
+          @batchGenerate="handleBatchGenerate"
         />
       </div>
     </div>
   </div>
 
   <BulkImportModal v-model:show="showBulkImportModal" @import="handleBulkImport" />
+  <BatchGenerateModal :show="showBatchGenerateModal" :profile="batchGenerateProfile" @close="showBatchGenerateModal = false" />
   <Modal v-model:show="showDeleteSubsModal" @confirm="handleDeleteAllSubscriptionsWithCleanup"><template #title><h3 class="text-lg font-bold text-red-500">确认清空订阅</h3></template><template #body><p class="text-sm text-gray-400">您确定要删除所有**订阅**吗？此操作将标记为待保存，不会影响手动节点。</p></template></Modal>
   <Modal v-model:show="showDeleteNodesModal" @confirm="handleDeleteAllNodesWithCleanup"><template #title><h3 class="text-lg font-bold text-red-500">确认清空节点</h3></template><template #body><p class="text-sm text-gray-400">您确定要删除所有**手动节点**吗？此操作将标记为待保存，不会影响订阅。</p></template></Modal>
   <Modal v-model:show="showDeleteProfilesModal" @confirm="handleDeleteAllProfiles"><template #title><h3 class="text-lg font-bold text-red-500">确认清空订阅组</h3></template><template #body><p class="text-sm text-gray-400">您确定要删除所有**订阅组**吗？此操作不可逆。</p></template></Modal>

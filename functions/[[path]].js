@@ -1211,6 +1211,14 @@ async function handleApiRequest(request, env) {
 
         case '/batch-generate': {
             if (request.method === 'POST') {
+                // 授权检查
+                if (!await authMiddleware(request, env)) {
+                    return new Response(JSON.stringify({ error: 'Unauthorized' }), { 
+                        status: 401, 
+                        headers: { 'Content-Type': 'application/json' } 
+                    });
+                }
+                
                 try {
                     const { profileId, count, duration } = await request.json();
                     const config = getConfig();

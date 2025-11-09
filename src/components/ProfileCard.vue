@@ -8,7 +8,7 @@ const props = defineProps({
   },
 });
 
-const emit = defineEmits(['delete', 'change', 'edit', 'copy-link']);
+const emit = defineEmits(['delete', 'change', 'edit', 'copy-link', 'batch-generate']);
 
 </script>
 
@@ -45,10 +45,16 @@ const emit = defineEmits(['delete', 'change', 'edit', 'copy-link']);
         <span class="ml-3 text-sm font-medium text-gray-600 dark:text-gray-300">{{ profile.enabled ? '已启用' : '已禁用' }}</span>
       </label>
 
-      <button @click="emit('copy-link')" class="text-sm font-semibold px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white transition-colors shadow-xs flex items-center gap-2">
-         <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
-        复制
-      </button>
+      <div class="flex gap-2">
+        <button @click="emit('batch-generate')" class="text-sm font-semibold px-3 py-1.5 rounded-lg bg-green-600 hover:bg-green-700 text-white transition-colors shadow-xs flex items-center gap-2" title="批量生成用户订阅链接">
+           <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" /></svg>
+          生成
+        </button>
+        <button @click="emit('copy-link')" class="text-sm font-semibold px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white transition-colors shadow-xs flex items-center gap-2">
+           <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
+          复制
+        </button>
+      </div>
     </div>
   </div>
 </template>
