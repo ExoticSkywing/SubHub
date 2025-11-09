@@ -355,142 +355,150 @@ async function sendEnhancedTgNotification(settings, type, request, additionalDat
   let locationInfo = '';
   let geoSource = 'unknown';
   
-  // 多 API 轮询策略：按优先级依次尝试，失败则切换下一个
+  // 读取配置化的API优先级
+  const asyncConfig = getConfig();
+  const apiPriority = asyncConfig.geoip.API_PRIORITY;
+  const apiTimeout = asyncConfig.geoip.API_TIMEOUT_MS;
   
-  // 第1层：ipgeolocation.io（最精准，1000次/天）
-  if (settings.IPGeoAPIKey && !locationInfo) {
-    try {
-      const response = await fetch(
-        `https://api.ipgeolocation.io/ipgeo?apiKey=${settings.IPGeoAPIKey}&ip=${clientIp}`,
-        { signal: AbortSignal.timeout(3000) }
-      );
-      
-      if (response.ok) {
-        const data = await response.json();
-        if (data.country_name) {
-          // 构建地理信息，添加国旗 emoji
-          const countryEmoji = data.country_emoji || '';
-          const countryName = data.country_name || 'N/A';
-          const city = data.city || 'N/A';
-          const district = data.district || '';
-          
-          locationInfo = `
-*国家:* ${countryEmoji} \`${countryName}\`
-*城市:* \`${city}\``;
-          
-          // 只有当街道信息存在时才显示
-          if (district) {
-            locationInfo += `
-*街道:* \`${district}\``;
-          }
-          
-          // ISP 和 ASN 信息
-          const isp = data.organization || data.isp || 'N/A';
-          // ASN 可能在不同字段：data.asn, data.connection.asn, 或 data.as
-          const asn = data.asn || data.connection?.asn || data.as || 'N/A';
-          
-          locationInfo += `
-*ISP:* \`${isp}\`
-*ASN:* \`${asn}\``;
-          geoSource = 'ipgeolocation.io';
-        }
-      }
-    } catch (error) {
-      // 失败，尝试下一个
-    }
-  }
-  
-  // 第2层：ipwhois.io（完全免费，10,000次/月）
-  if (!locationInfo) {
-    try {
-      const response = await fetch(
-        `https://ipwhois.app/json/${clientIp}?lang=zh-CN`,
-        { signal: AbortSignal.timeout(3000) }
-      );
-      
-      if (response.ok) {
-        const data = await response.json();
-        if (data.success !== false && data.country) {
-          const countryEmoji = getCountryEmoji(data.country_code) || '';
-          locationInfo = `
-*国家:* ${countryEmoji} \`${data.country || 'N/A'}\`
-*城市:* \`${data.city || 'N/A'}\`
-*ISP:* \`${data.isp || 'N/A'}\`
-*ASN:* \`AS${data.asn || 'N/A'}\``;
-          geoSource = 'ipwhois.io';
-        }
-      }
-    } catch (error) {
-      // 失败，尝试下一个
-    }
-  }
-  
-  // 第3层：ipdata.co（准确，1500次/天）
-  if (settings.IPDataAPIKey && !locationInfo) {
-    try {
+  // API调用函数映射表
+  const apiHandlers = {
+    'ipdata.co': async () => {
+      if (!settings.IPDataAPIKey) return null;
       const response = await fetch(
         `https://api.ipdata.co/${clientIp}?api-key=${settings.IPDataAPIKey}`,
-        { signal: AbortSignal.timeout(3000) }
+        { signal: AbortSignal.timeout(apiTimeout) }
       );
+      if (!response.ok) return null;
+      const data = await response.json();
+      if (!data.country_name) return null;
       
-      if (response.ok) {
-        const data = await response.json();
-        if (data.country_name) {
-          const countryEmoji = data.emoji_flag || getCountryEmoji(data.country_code) || '';
-          locationInfo = `
+      const countryEmoji = data.emoji_flag || getCountryEmoji(data.country_code) || '';
+      return {
+        info: `
 *国家:* ${countryEmoji} \`${data.country_name || 'N/A'}\`
 *城市:* \`${data.city || 'N/A'}\`
 *ISP:* \`${data.asn?.name || 'N/A'}\`
-*ASN:* \`${data.asn?.asn || 'N/A'}\``;
-          geoSource = 'ipdata.co';
-        }
-      }
-    } catch (error) {
-      // 失败，尝试下一个
-    }
-  }
-  
-  // 第4层：ip-api.com（兜底，45次/分钟）
-  if (!locationInfo) {
-    try {
+*ASN:* \`${data.asn?.asn || 'N/A'}\``,
+        source: 'ipdata.co'
+      };
+    },
+    
+    'ipwhois.io': async () => {
+      const response = await fetch(
+        `https://ipwhois.app/json/${clientIp}?lang=zh-CN`,
+        { signal: AbortSignal.timeout(apiTimeout) }
+      );
+      if (!response.ok) return null;
+      const data = await response.json();
+      if (data.success === false || !data.country) return null;
+      
+      const countryEmoji = getCountryEmoji(data.country_code) || '';
+      return {
+        info: `
+*国家:* ${countryEmoji} \`${data.country || 'N/A'}\`
+*城市:* \`${data.city || 'N/A'}\`
+*ISP:* \`${data.isp || 'N/A'}\`
+*ASN:* \`AS${data.asn || 'N/A'}\``,
+        source: 'ipwhois.io'
+      };
+    },
+    
+    'ip-api.com': async () => {
       const response = await fetch(
         `http://ip-api.com/json/${clientIp}?lang=zh-CN`,
-        { signal: AbortSignal.timeout(3000) }
+        { signal: AbortSignal.timeout(apiTimeout) }
       );
+      if (!response.ok) return null;
+      const data = await response.json();
+      if (data.status !== 'success') return null;
       
-      if (response.ok) {
-        const data = await response.json();
-        if (data.status === 'success') {
-          const countryEmoji = getCountryEmoji(data.countryCode) || '';
-          locationInfo = `
+      const countryEmoji = getCountryEmoji(data.countryCode) || '';
+      return {
+        info: `
 *国家:* ${countryEmoji} \`${data.country || 'N/A'}\`
 *城市:* \`${data.city || 'N/A'}\`
 *ISP:* \`${data.org || 'N/A'}\`
-*ASN:* \`${data.as || 'N/A'}\``;
-          geoSource = 'ip-api.com';
-        }
+*ASN:* \`${data.as || 'N/A'}\``,
+        source: 'ip-api.com'
+      };
+    },
+    
+    'ipgeolocation.io': async () => {
+      if (!settings.IPGeoAPIKey) return null;
+      const response = await fetch(
+        `https://api.ipgeolocation.io/ipgeo?apiKey=${settings.IPGeoAPIKey}&ip=${clientIp}`,
+        { signal: AbortSignal.timeout(apiTimeout) }
+      );
+      if (!response.ok) return null;
+      const data = await response.json();
+      if (!data.country_name) return null;
+      
+      const countryEmoji = data.country_emoji || '';
+      const district = data.district || '';
+      let info = `
+*国家:* ${countryEmoji} \`${data.country_name || 'N/A'}\`
+*城市:* \`${data.city || 'N/A'}\``;
+      
+      if (district) {
+        info += `
+*街道:* \`${district}\``;
       }
-    } catch (error) {
-      // 失败，降级到 Cloudflare
-    }
-  }
-  
-  // 最后的兜底：Cloudflare 原生数据（仅国家+ASN准确，城市可能不准）
-  if (!locationInfo && request.cf) {
-    try {
+      
+      const isp = data.organization || data.isp || 'N/A';
+      const asn = data.asn || data.connection?.asn || data.as || 'N/A';
+      info += `
+*ISP:* \`${isp}\`
+*ASN:* \`${asn}\``;
+      
+      return {
+        info,
+        source: 'ipgeolocation.io'
+      };
+    },
+    
+    'cloudflare': async () => {
+      if (!request.cf) return null;
       const cf = request.cf;
       const countryEmoji = getCountryEmoji(cf.country) || '';
-      locationInfo = `
+      return {
+        info: `
 *国家:* ${countryEmoji} \`${cf.country || 'N/A'}\`
 *城市:* \`${cf.city || 'N/A'}\` ⚠️
 *ISP:* \`${cf.asOrganization || 'N/A'}\`
-*ASN:* \`AS${cf.asn || 'N/A'}\``;
-      geoSource = 'Cloudflare (城市可能不准)';
-    } catch (error) {
-      // 彻底失败
-      locationInfo = '\n*地理信息:* 获取失败';
-      geoSource = 'failed';
+*ASN:* \`AS${cf.asn || 'N/A'}\``,
+        source: 'Cloudflare (城市可能不准)'
+      };
     }
+  };
+  
+  // 按配置的优先级依次尝试API
+  for (const apiName of apiPriority) {
+    if (locationInfo) break; // 已获取到信息，停止尝试
+    
+    const handler = apiHandlers[apiName];
+    if (!handler) {
+      console.warn(`[GeoIP] Unknown API: ${apiName}`);
+      continue;
+    }
+    
+    try {
+      const result = await handler();
+      if (result) {
+        locationInfo = result.info;
+        geoSource = result.source;
+        console.log(`[GeoIP] Success: ${geoSource}`);
+        break;
+      }
+    } catch (error) {
+      console.log(`[GeoIP] ${apiName} failed:`, error.message);
+      // 继续尝试下一个API
+    }
+  }
+  
+  // 如果所有API都失败，返回失败提示
+  if (!locationInfo) {
+    locationInfo = '\n*地理信息:* 获取失败';
+    geoSource = 'failed';
   }
   
   // 构建完整消息

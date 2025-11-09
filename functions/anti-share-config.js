@@ -8,11 +8,11 @@
 // ============================================
 export const ANTI_SHARE_CONFIG = {
   // 设备限制
-  MAX_DEVICES: 2,              // 最大设备数量（测试建议：2）
+  MAX_DEVICES: 1,              // 最大设备数量（测试建议：2）
   CITY_CHECK_START_INDEX: 0,  // 从第几台设备开始检测城市（0-based，2=第3台）
   
   // 访问次数限制（可选功能，默认关闭）
-  RATE_LIMIT_ENABLED: false,   // 是否启用访问次数限制
+  RATE_LIMIT_ENABLED: true,   // 是否启用访问次数限制
   RATE_LIMITS: {
     1: 2,   // 1台设备：3次/天（测试建议：3次）
     2: 4,   // 2台设备：5次/天（测试建议：5次）
@@ -61,7 +61,7 @@ export const CITY_CONFIG = {
   ENABLE_CITY_STATS: true,
   
   // 最多记录多少个城市（防止无限增长）（0=不限制）
-  MAX_CITIES_PER_DEVICE: 3  // 测试建议：5
+  MAX_CITIES_PER_DEVICE: 1  // 测试建议：5
 };
 
 // ============================================
