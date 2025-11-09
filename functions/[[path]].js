@@ -235,8 +235,9 @@ const defaultSettings = {
   },
   NotifyThresholdDays: 3,
   NotifyThresholdPercent: 90,
-  storageType: 'kv', // 新增：数据存储类型，默认 KV，可选 'd1'
-  GeoIPSource: 'cloudflare' // 地理信息来源：'cloudflare'(推荐,免费快速) 或 'ip-api'(需外部请求)
+  storageType: 'kv', // 数据存储类型，默认 KV，可选 'd1'
+  IPGeoAPIKey: '', // ipgeolocation.io API Key（最精准，1000次/天）
+  IPDataAPIKey: '' // ipdata.co API Key（准确，1500次/天）
 };
 
 const formatBytes = (bytes, decimals = 2) => {
@@ -299,51 +300,125 @@ async function sendEnhancedTgNotification(settings, type, request, additionalDat
   
   const clientIp = request.headers.get('CF-Connecting-IP') || 'N/A';
   let locationInfo = '';
+  let geoSource = 'unknown';
   
-  // 地理信息来源配置：'cloudflare' (默认) 或 'ip-api'
-  const geoSource = settings.GeoIPSource || 'cloudflare';
+  // 多 API 轮询策略：按优先级依次尝试，失败则切换下一个
   
-  // 方式1：使用 Cloudflare 原生数据（推荐，免费且快速）
-  if (geoSource === 'cloudflare' && request.cf) {
+  // 第1层：ipgeolocation.io（最精准，1000次/天）
+  if (settings.IPGeoAPIKey && !locationInfo) {
     try {
-      const cf = request.cf;
-      const country = cf.country || 'N/A';
-      const city = cf.city || 'N/A';
-      const asn = cf.asn ? `AS${cf.asn}` : 'N/A';
-      const isp = cf.asOrganization || 'N/A';
-      
-      locationInfo = `
-*国家:* \`${country}\`
-*城市:* \`${city}\`
-*ISP:* \`${isp}\`
-*ASN:* \`${asn}\``;
-    } catch (error) {
-      // Cloudflare 数据获取失败，忽略错误
-    }
-  }
-  
-  // 方式2：使用 ip-api.com（备选方案，需要外部请求）
-  if (geoSource === 'ip-api' || !locationInfo) {
-    try {
-      const response = await fetch(`http://ip-api.com/json/${clientIp}?lang=zh-CN`, {
-        cf: { 
-          // 设置较短的超时时间，避免影响主请求
-          timeout: 3000 
-        }
-      });
+      const response = await fetch(
+        `https://api.ipgeolocation.io/ipgeo?apiKey=${settings.IPGeoAPIKey}&ip=${clientIp}&lang=zh-CN`,
+        { signal: AbortSignal.timeout(3000) }
+      );
       
       if (response.ok) {
-        const ipInfo = await response.json();
-        if (ipInfo.status === 'success') {
+        const data = await response.json();
+        if (data.country_name) {
           locationInfo = `
-*国家:* \`${ipInfo.country || 'N/A'}\`
-*城市:* \`${ipInfo.city || 'N/A'}\`
-*ISP:* \`${ipInfo.org || 'N/A'}\`
-*ASN:* \`${ipInfo.as || 'N/A'}\``;
+*国家:* \`${data.country_name || 'N/A'}\`
+*城市:* \`${data.city || 'N/A'}\``;
+          if (data.district) {
+            locationInfo += `
+*街道:* \`${data.district}\``;
+          }
+          locationInfo += `
+*ISP:* \`${data.organization || data.isp || 'N/A'}\`
+*ASN:* \`${data.asn || 'N/A'}\``;
+          geoSource = 'ipgeolocation.io';
         }
       }
     } catch (error) {
-      // 获取IP位置信息失败，忽略错误
+      // 失败，尝试下一个
+    }
+  }
+  
+  // 第2层：ipwhois.io（完全免费，10,000次/月）
+  if (!locationInfo) {
+    try {
+      const response = await fetch(
+        `https://ipwhois.app/json/${clientIp}?lang=zh-CN`,
+        { signal: AbortSignal.timeout(3000) }
+      );
+      
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success !== false && data.country) {
+          locationInfo = `
+*国家:* \`${data.country || 'N/A'}\`
+*城市:* \`${data.city || 'N/A'}\`
+*ISP:* \`${data.isp || 'N/A'}\`
+*ASN:* \`AS${data.asn || 'N/A'}\``;
+          geoSource = 'ipwhois.io';
+        }
+      }
+    } catch (error) {
+      // 失败，尝试下一个
+    }
+  }
+  
+  // 第3层：ipdata.co（准确，1500次/天）
+  if (settings.IPDataAPIKey && !locationInfo) {
+    try {
+      const response = await fetch(
+        `https://api.ipdata.co/${clientIp}?api-key=${settings.IPDataAPIKey}`,
+        { signal: AbortSignal.timeout(3000) }
+      );
+      
+      if (response.ok) {
+        const data = await response.json();
+        if (data.country_name) {
+          locationInfo = `
+*国家:* \`${data.country_name || 'N/A'}\`
+*城市:* \`${data.city || 'N/A'}\`
+*ISP:* \`${data.asn?.name || 'N/A'}\`
+*ASN:* \`${data.asn?.asn || 'N/A'}\``;
+          geoSource = 'ipdata.co';
+        }
+      }
+    } catch (error) {
+      // 失败，尝试下一个
+    }
+  }
+  
+  // 第4层：ip-api.com（兜底，45次/分钟）
+  if (!locationInfo) {
+    try {
+      const response = await fetch(
+        `http://ip-api.com/json/${clientIp}?lang=zh-CN`,
+        { signal: AbortSignal.timeout(3000) }
+      );
+      
+      if (response.ok) {
+        const data = await response.json();
+        if (data.status === 'success') {
+          locationInfo = `
+*国家:* \`${data.country || 'N/A'}\`
+*城市:* \`${data.city || 'N/A'}\`
+*ISP:* \`${data.org || 'N/A'}\`
+*ASN:* \`${data.as || 'N/A'}\``;
+          geoSource = 'ip-api.com';
+        }
+      }
+    } catch (error) {
+      // 失败，降级到 Cloudflare
+    }
+  }
+  
+  // 最后的兜底：Cloudflare 原生数据（仅国家+ASN准确，城市可能不准）
+  if (!locationInfo && request.cf) {
+    try {
+      const cf = request.cf;
+      locationInfo = `
+*国家:* \`${cf.country || 'N/A'}\`
+*城市:* \`${cf.city || 'N/A'}\` ⚠️
+*ISP:* \`${cf.asOrganization || 'N/A'}\`
+*ASN:* \`AS${cf.asn || 'N/A'}\``;
+      geoSource = 'Cloudflare (城市可能不准)';
+    } catch (error) {
+      // 彻底失败
+      locationInfo = '\n*地理信息:* 获取失败';
+      geoSource = 'failed';
     }
   }
   
@@ -352,6 +427,7 @@ async function sendEnhancedTgNotification(settings, type, request, additionalDat
   const message = `${type}
 
 *IP 地址:* \`${clientIp}\`${locationInfo}
+*数据来源:* \`${geoSource}\`
 
 ${additionalData}
 

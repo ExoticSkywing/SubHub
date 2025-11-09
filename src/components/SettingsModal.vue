@@ -56,9 +56,12 @@ const loadSettings = async () => {
   try {
     settings.value = await fetchSettings();
     
-    // 确保 GeoIPSource 有默认值（向后兼容）
-    if (!settings.value.GeoIPSource) {
-      settings.value.GeoIPSource = 'cloudflare';
+    // 确保 API Key 有默认值（向后兼容）
+    if (!settings.value.IPGeoAPIKey) {
+      settings.value.IPGeoAPIKey = '';
+    }
+    if (!settings.value.IPDataAPIKey) {
+      settings.value.IPDataAPIKey = '';
     }
     
     // 加载前缀配置，支持向后兼容
@@ -266,35 +269,49 @@ watch(() => props.show, (newValue) => {
           >
         </div>
         <div>
-          <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">地理信息来源</label>
-          <div class="space-y-3">
-            <div class="flex items-center">
-              <input
-                id="geo-cloudflare"
-                type="radio"
-                value="cloudflare"
-                v-model="settings.GeoIPSource"
-                class="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 dark:border-gray-600 dark:bg-gray-800"
-              >
-              <label for="geo-cloudflare" class="ml-3 block text-sm text-gray-700 dark:text-gray-300">
-                Cloudflare 原生数据（推荐，免费快速）
-              </label>
-            </div>
-            <div class="flex items-center">
-              <input
-                id="geo-ipapi"
-                type="radio"
-                value="ip-api"
-                v-model="settings.GeoIPSource"
-                class="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 dark:border-gray-600 dark:bg-gray-800"
-              >
-              <label for="geo-ipapi" class="ml-3 block text-sm text-gray-700 dark:text-gray-300">
-                ip-api.com（中文城市名，有速率限制）
-              </label>
-            </div>
+          <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">地理位置 API 配置</label>
+          <div class="space-y-4 bg-gray-50 dark:bg-gray-800/50 rounded-lg p-4">
             <div class="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
               <p class="text-xs text-blue-600 dark:text-blue-400">
-                💡 提示：Cloudflare 原生数据完全免费且速度极快，无需外部 API 请求。ip-api 提供中文城市名，但免费版限制 45 次/分钟。
+                💡 自动轮询策略：ipgeolocation.io → ipwhois.io → ipdata.co → ip-api.com → Cloudflare（降级）
+              </p>
+            </div>
+            
+            <div>
+              <label for="ipGeoKey" class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                ipgeolocation.io API Key（推荐，最精准，1000次/天）
+              </label>
+              <input 
+                type="text" 
+                id="ipGeoKey" 
+                v-model="settings.IPGeoAPIKey"
+                placeholder="留空则跳过此 API"
+                class="block w-full px-3 py-2 text-sm bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded shadow-xs focus:outline-hidden focus:ring-indigo-500 focus:border-indigo-500 dark:text-white"
+              >
+              <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                注册地址：<a href="https://ipgeolocation.io/signup.html" target="_blank" class="text-indigo-600 dark:text-indigo-400 hover:underline">https://ipgeolocation.io/signup.html</a>
+              </p>
+            </div>
+            
+            <div>
+              <label for="ipDataKey" class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                ipdata.co API Key（准确，1500次/天）
+              </label>
+              <input 
+                type="text" 
+                id="ipDataKey" 
+                v-model="settings.IPDataAPIKey"
+                placeholder="留空则跳过此 API"
+                class="block w-full px-3 py-2 text-sm bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded shadow-xs focus:outline-hidden focus:ring-indigo-500 focus:border-indigo-500 dark:text-white"
+              >
+              <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                注册地址：<a href="https://ipdata.co/sign-up.html" target="_blank" class="text-indigo-600 dark:text-indigo-400 hover:underline">https://ipdata.co/sign-up.html</a>
+              </p>
+            </div>
+            
+            <div class="p-3 bg-green-50 dark:bg-green-900/20 rounded-lg">
+              <p class="text-xs text-green-600 dark:text-green-400">
+                ℹ️ ipwhois.io（10,000次/月）和 ip-api.com（45次/分钟）无需配置，会自动使用。
               </p>
             </div>
           </div>
