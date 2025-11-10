@@ -2493,6 +2493,68 @@ function getBrowserBlockedResponse() {
  */
 async function handleUserSubscription(userToken, profileId, profileToken, request, env, config, context) {
     try {
+        const url = new URL(request.url);
+        
+        // 【优先级0】订阅转换器回调请求处理（必须在所有检测之前）
+        const callbackToken = await getCallbackToken(env);
+        if (url.searchParams.get('callback_token') === callbackToken) {
+            console.log('[Callback] Subconverter callback request, returning node list directly');
+            
+            // 加载用户数据
+            const userDataRaw = await env.MISUB_KV.get(`user:${userToken}`);
+            if (!userDataRaw) {
+                return new Response('User not found', { status: 404 });
+            }
+            
+            const userData = JSON.parse(userDataRaw);
+            
+            // 加载订阅组配置
+            const storageAdapter = await getStorageAdapter(env);
+            const allProfiles = await storageAdapter.get(KV_KEY_PROFILES) || [];
+            const profile = allProfiles.find(p => 
+                (p.customId && p.customId === profileId) || p.id === profileId
+            );
+            
+            if (!profile || !profile.enabled) {
+                return new Response('Profile not found', { status: 404 });
+            }
+            
+            const allMisubs = await storageAdapter.get(KV_KEY_SUBS) || [];
+            const profileSubIds = new Set(profile.subscriptions);
+            const profileNodeIds = new Set(profile.manualNodes);
+            const targetMisubs = allMisubs.filter(item => {
+                const isSubscription = item.url.startsWith('http');
+                const isManualNode = !isSubscription;
+                const belongsToProfile = (isSubscription && profileSubIds.has(item.id)) || 
+                                        (isManualNode && profileNodeIds.has(item.id));
+                return item.enabled && belongsToProfile;
+            });
+            
+            // 生成节点列表
+            const nodeLinks = await generateCombinedNodeList(
+                { request, env },
+                config,
+                request.headers.get('User-Agent') || 'Unknown',
+                targetMisubs,
+                '',
+                profile?.prefixSettings || null
+            );
+            
+            // 调试日志
+            const nodeCount = nodeLinks.split('\n').filter(line => line.trim()).length;
+            console.log(`[Callback] Returning ${nodeCount} nodes to subconverter`);
+            console.log(`[Callback] Node preview: ${nodeLinks.substring(0, 200)}`);
+            
+            // 返回base64编码的节点列表
+            const base64Content = btoa(unescape(encodeURIComponent(nodeLinks)));
+            return new Response(base64Content, {
+                headers: {
+                    'Content-Type': 'text/plain; charset=utf-8',
+                    'Cache-Control': 'no-store, no-cache'
+                }
+            });
+        }
+        
         const asyncConfig = getConfig();
         
         // 0. 🔒 优先检测Bot请求（保护节点隐私）
@@ -2714,7 +2776,6 @@ async function handleUserSubscription(userToken, profileId, profileToken, reques
         console.log(`[UserSub] nodeLinks preview: ${nodeLinks?.substring(0, 100)}`);
         
         // 11. 判断目标格式（复用公共函数，如果格式需要SubConfig但未配置则降级到base64）
-        const url = new URL(request.url);
         const targetFormat = determineTargetFormat(url, userAgent, effectiveSubConfig);
         
         // 12. 如果是base64格式，直接返回
