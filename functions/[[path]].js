@@ -1873,23 +1873,32 @@ async function performAntiShareCheck(userToken, userData, request, env, config, 
     
     // 【检测2】城市检测（启用城市检测后）
     if (shouldCheckCity && isNewCity) {
-        const existingCities = Object.values(device.cities).map(c => c.city);
+        // 获取整个账户下所有设备的所有城市（去重）
+        const allCitiesSet = new Set();
+        Object.values(userData.devices).forEach(dev => {
+            Object.values(dev.cities).forEach(cityInfo => {
+                allCitiesSet.add(cityInfo.city);
+            });
+        });
+        const allExistingCities = Array.from(allCitiesSet);
+        
+        // 获取当前设备已使用的城市
+        const deviceCities = Object.values(device.cities).map(c => c.city);
         
         if (isNewDevice) {
             // 新设备 + 新城市
-            // 注意：新设备第一次访问时，existingCities为空，应该放行（建立基线）
-            // 只有当existingCities不为空时，才说明是可疑的共享行为
-            if (existingCities.length > 0) {
-                // 新设备但已有其他城市记录（理论上不应该发生，除非并发访问）
-                // 这种情况视为可疑行为，拒绝
+            // 检查：账户下是否已有其他城市（如果有，说明可能是共享）
+            if (allExistingCities.length > 0) {
+                // 新设备但账户已有其他城市记录 → 可疑的多设备共享
                 if (config.telegram.NOTIFY_ON_CITY_MISMATCH) {
                     const additionalData = `*Token:* \`${userToken}\`
 *设备ID:* \`${deviceId}\`
 *设备UA:* \`${userAgent}\`
-*已有城市:* \`${existingCities.join(', ')}\`
+*账户已有城市:* \`${allExistingCities.join(', ')}\`
 *当前城市:* \`${city}\`
+*当前设备数:* \`${currentDeviceCount}\`
 *IP:* \`${clientIp}\`
-*原因:* 新设备+新城市（可疑共享或并发访问）`;
+*原因:* 新设备+新城市（可疑共享）`;
                     context.waitUntil(sendEnhancedTgNotification(settings, '🚫 *新设备新城市*', request, additionalData));
                 }
                 
@@ -1900,14 +1909,14 @@ async function performAntiShareCheck(userToken, userData, request, env, config, 
                     city
                 };
             }
-            // else: 新设备第一次访问，放行，建立基线
+            // else: 新设备第一次访问且账户无其他城市记录，放行，建立基线
         } else {
             // 已存在设备 + 新城市 → 拒绝（疑似使用代理）
             if (config.telegram.NOTIFY_ON_CITY_MISMATCH) {
                 const additionalData = `*Token:* \`${userToken}\`
 *设备ID:* \`${deviceId}\`
 *设备UA:* \`${userAgent}\`
-*已使用城市:* \`${existingCities.join(', ')}\`
+*该设备已使用城市:* \`${deviceCities.join(', ')}\`
 *当前城市:* \`${city}\`
 *IP:* \`${clientIp}\`
 *原因:* 已存在设备访问新城市（疑似代理）`;
@@ -1919,7 +1928,7 @@ async function performAntiShareCheck(userToken, userData, request, env, config, 
                 reason: 'existing_device_new_city',
                 deviceId,
                 city,
-                existingCities
+                existingCities: deviceCities
             };
         }
     }
