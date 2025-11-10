@@ -2144,22 +2144,30 @@ async function performAntiShareCheck(userToken, userData, request, env, config, 
             // 封禁已过期，自动解冻
             console.log(`[AntiShare] Account ${userToken} auto-unfrozen after suspension`);
             
+            // 部分重置计数器（中间方案）：降低到阈值的60%，既保留"案底"又给缓冲空间
+            const failedThreshold = config.antiShare.SUSPEND_FAILED_ATTEMPTS_THRESHOLD || 5;
+            const rateLimitThreshold = config.antiShare.SUSPEND_RATE_LIMIT_ATTEMPTS_THRESHOLD || 10;
+            const oldFailedAttempts = userData.stats.failedAttempts || 0;
+            const oldRateLimitAttempts = userData.stats.rateLimitAttempts || 0;
+            
+            userData.stats.failedAttempts = Math.floor(failedThreshold * 0.6);  // 例如：5 → 3
+            userData.stats.rateLimitAttempts = Math.floor(rateLimitThreshold * 0.6);  // 例如：10 → 6
+            
             // 发送解封通知
             if (config.telegram.NOTIFY_ON_NEW_DEVICE) {
                 const additionalData = `*Token:* \`${userToken}\`
 *解封时间:* \`${new Date(now).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}\`
 *状态:* ✅ 封禁已过期，账号已自动恢复
-*失败计数已重置:* 0次
 
-您现在可以正常使用订阅服务。`;
+*计数器调整:*
+- 失败尝试: \`${oldFailedAttempts}\` → \`${userData.stats.failedAttempts}\` 次（阈值: ${failedThreshold}次）
+- 达到上限后尝试: \`${oldRateLimitAttempts}\` → \`${userData.stats.rateLimitAttempts}\` 次（阈值: ${rateLimitThreshold}次）
+
+⚠️ 如继续违规，将更快触发再次封禁。`;
                 context.waitUntil(sendEnhancedTgNotification(settings, '✅ *账号已自动解封*', request, additionalData));
             }
             
             delete userData.suspend;
-            
-            // 重置失败计数器，给用户一个新的开始
-            userData.stats.failedAttempts = 0;
-            userData.stats.rateLimitAttempts = 0;
             
             // 保存解封状态到KV
             await env.MISUB_KV.put(`user:${userToken}`, JSON.stringify(userData));
