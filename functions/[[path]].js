@@ -2236,7 +2236,7 @@ async function performAntiShareCheck(userToken, userData, request, env, config, 
                         at: Date.now(),
                         until: suspendUntil,
                         reason: suspendReason,
-                        deviceCount: currentDeviceCount,
+                        deviceCount: deviceCount,
                         failedAttempts: userData.stats.failedAttempts
                     };
                     
@@ -2251,7 +2251,7 @@ async function performAntiShareCheck(userToken, userData, request, env, config, 
 
 *触发原因:*
 - 失败尝试: \`${userData.stats.failedAttempts}\` 次（阈值: ${failedAttemptsThreshold}次）
-- 已有设备数: \`${currentDeviceCount}\`
+- 已有设备数: \`${deviceCount}\`
 - ⚠️ 疑似账号共享或滥用（如新设备新城市）`;
                     
                     context.waitUntil(sendEnhancedTgNotification(settings, '🚫 *账号已临时封禁*', request, additionalData));
@@ -2343,7 +2343,7 @@ async function performAntiShareCheck(userToken, userData, request, env, config, 
 *设备UA:* \`${userAgent}\`
 *账户已有城市:* \`${allCitiesForDisplay.join(', ')}\` (${currentCityCount}/${maxCities})
 *当前城市:* \`${city}\`
-*设备数:* \`${currentDeviceCount}\`
+*设备数:* \`${deviceCount}\`
 *IP:* \`${clientIp}\`
 *原因:* 该城市非常用城市（账户已达${maxCities}个城市上限）`;
                     context.waitUntil(sendEnhancedTgNotification(settings, '🌍 *城市异常*', request, additionalData));
@@ -2366,7 +2366,7 @@ async function performAntiShareCheck(userToken, userData, request, env, config, 
                             at: Date.now(),
                             until: suspendUntil,
                             reason: suspendReason,
-                            deviceCount: currentDeviceCount,
+                            deviceCount: deviceCount,
                             failedAttempts: userData.stats.failedAttempts
                         };
                         
@@ -2381,7 +2381,7 @@ async function performAntiShareCheck(userToken, userData, request, env, config, 
 
 *触发原因:*
 - 失败尝试: \`${userData.stats.failedAttempts}\` 次（阈值: ${failedAttemptsThreshold}次）
-- 已有设备数: \`${currentDeviceCount}\`
+- 已有设备数: \`${deviceCount}\`
 - ⚠️ 疑似账号共享或滥用（已存在设备访问新城市）`;
                         
                         context.waitUntil(sendEnhancedTgNotification(settings, '🚫 *账号已临时封禁*', request, notificationData));
