@@ -1875,25 +1875,33 @@ async function performAntiShareCheck(userToken, userData, request, env, config, 
         const existingCities = Object.values(device.cities).map(c => c.city);
         
         if (isNewDevice) {
-            // 新设备 + 新城市 → 拒绝
-            if (config.telegram.NOTIFY_ON_CITY_MISMATCH) {
-                const additionalData = `*Token:* \`${userToken}\`
+            // 新设备 + 新城市
+            // 注意：新设备第一次访问时，existingCities为空，应该放行（建立基线）
+            // 只有当existingCities不为空时，才说明是可疑的共享行为
+            if (existingCities.length > 0) {
+                // 新设备但已有其他城市记录（理论上不应该发生，除非并发访问）
+                // 这种情况视为可疑行为，拒绝
+                if (config.telegram.NOTIFY_ON_CITY_MISMATCH) {
+                    const additionalData = `*Token:* \`${userToken}\`
 *设备ID:* \`${deviceId}\`
 *设备UA:* \`${userAgent}\`
-*城市:* \`${city}\`
+*已有城市:* \`${existingCities.join(', ')}\`
+*当前城市:* \`${city}\`
 *IP:* \`${clientIp}\`
-*原因:* 新设备+新城市（可疑共享）`;
-                context.waitUntil(sendEnhancedTgNotification(config, '🚫 *新设备新城市*', request, additionalData));
+*原因:* 新设备+新城市（可疑共享或并发访问）`;
+                    context.waitUntil(sendEnhancedTgNotification(config, '🚫 *新设备新城市*', request, additionalData));
+                }
+                
+                return {
+                    allowed: false,
+                    reason: 'new_device_new_city',
+                    deviceId,
+                    city
+                };
             }
-            
-            return {
-                allowed: false,
-                reason: 'new_device_new_city',
-                deviceId,
-                city
-            };
+            // else: 新设备第一次访问，放行，建立基线
         } else {
-            // 已存在设备 + 新城市 → 拒绝
+            // 已存在设备 + 新城市 → 拒绝（疑似使用代理）
             if (config.telegram.NOTIFY_ON_CITY_MISMATCH) {
                 const additionalData = `*Token:* \`${userToken}\`
 *设备ID:* \`${deviceId}\`
