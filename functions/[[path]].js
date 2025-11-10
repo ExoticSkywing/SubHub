@@ -2385,11 +2385,10 @@ async function handleUserSubscription(userToken, profileId, profileToken, reques
             });
         }
         
-        // 7. 更新访问统计并保存
+        // 7. 更新访问统计（暂不保存，等订阅内容成功生成后再保存）
         userData.stats.totalRequests = (userData.stats.totalRequests || 0) + 1;
         userData.stats.lastRequest = Date.now();
-        // 统一保存userData（包含反共享检测的更新和访问统计的更新）
-        await env.MISUB_KV.put(`user:${userToken}`, JSON.stringify(userData));
+        // ⚠️ 注意：KV 保存已移到订阅内容成功生成之后，避免订阅转换器失败时设备配额被占用
         
         // 8. 发送Telegram通知
         if (config.BotToken && config.ChatID) {
@@ -2480,6 +2479,10 @@ async function handleUserSubscription(userToken, profileId, profileToken, reques
         // 12. 如果是base64格式，直接返回
         if (targetFormat === 'base64') {
             const base64Content = btoa(unescape(encodeURIComponent(nodeLinks)));
+            
+            // ✅ 订阅内容已成功生成，保存 KV（包含设备绑定、访问统计等）
+            await env.MISUB_KV.put(`user:${userToken}`, JSON.stringify(userData));
+            
             return new Response(base64Content, {
                 headers: {
                     'Content-Type': 'text/plain; charset=utf-8',
@@ -2503,7 +2506,8 @@ async function handleUserSubscription(userToken, profileId, profileToken, reques
             'Profile-Title': profile.name || config.FileName
         };
         
-        return await processViaSubconverter(
+        // 调用订阅转换器
+        const subconverterResponse = await processViaSubconverter(
             nodeLinks,
             targetFormat,
             url,
@@ -2514,6 +2518,16 @@ async function handleUserSubscription(userToken, profileId, profileToken, reques
             profile.name || config.FileName,
             additionalHeaders
         );
+        
+        // ✅ 只有订阅转换成功（2xx状态），才保存 KV
+        if (subconverterResponse.ok) {
+            await env.MISUB_KV.put(`user:${userToken}`, JSON.stringify(userData));
+            console.log(`[UserSub] ✅ Subscription converted successfully, KV saved for token: ${userToken}`);
+        } else {
+            console.warn(`[UserSub] ⚠️ Subscription conversion failed (${subconverterResponse.status}), KV NOT saved to prevent device quota waste`);
+        }
+        
+        return subconverterResponse;
     } catch (error) {
         // 捕获所有错误并返回详细信息
         console.error(`[UserSub Error] ${error.message}`, error.stack);
