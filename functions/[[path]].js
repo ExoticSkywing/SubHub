@@ -2190,7 +2190,71 @@ async function performAntiShareCheck(userToken, userData, request, env, config, 
     
     // 【检测1】设备数量限制（新设备才检查）
     if (isNewDevice && deviceCount >= config.antiShare.MAX_DEVICES) {
-        // 发送Telegram通知
+        // 记录失败尝试次数
+        userData.stats.failedAttempts = (userData.stats.failedAttempts || 0) + 1;
+        
+        // 🔍 立即检查是否需要触发封禁
+        if (config.antiShare.SUSPEND_ENABLED) {
+            const failedAttemptsThreshold = config.antiShare.SUSPEND_FAILED_ATTEMPTS_THRESHOLD || 5;
+            
+            if (userData.stats.failedAttempts >= failedAttemptsThreshold) {
+                // 触发临时封禁
+                const suspendDurationMs = config.antiShare.SUSPEND_DURATION_DAYS * 24 * 60 * 60 * 1000;
+                const suspendUntil = Date.now() + suspendDurationMs;
+                const suspendReason = `可疑的高频失败尝试（${userData.stats.failedAttempts}次失败尝试，疑似账号共享或滥用）`;
+                
+                userData.suspend = {
+                    at: Date.now(),
+                    until: suspendUntil,
+                    reason: suspendReason,
+                    deviceCount: deviceCount,
+                    failedAttempts: userData.stats.failedAttempts
+                };
+                
+                // 发送Telegram封禁通知
+                const unfreezeDate = new Date(suspendUntil).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
+                
+                // 格式化封禁时长
+                let durationText = '';
+                const days = config.antiShare.SUSPEND_DURATION_DAYS;
+                if (days >= 1) {
+                    durationText = `${days}天`;
+                } else if (days >= 1/24) {
+                    const hours = Math.round(days * 24);
+                    durationText = `${hours}小时`;
+                } else {
+                    const minutes = Math.round(days * 24 * 60);
+                    durationText = `${minutes}分钟`;
+                }
+                
+                const additionalData = `*Token:* \`${userToken}\`
+*设备ID:* \`${deviceId}\`
+*城市:* \`${city}\`
+*IP:* \`${clientIp}\`
+*封禁时长:* ${durationText}
+*解封时间:* \`${unfreezeDate}\`
+
+*触发原因:*
+- 失败尝试: \`${userData.stats.failedAttempts}\` 次（阈值: ${failedAttemptsThreshold}次）
+- 已有设备数: \`${deviceCount}\`
+- ⚠️ 疑似账号共享或滥用（频繁尝试添加超限设备）`;
+                
+                context.waitUntil(sendEnhancedTgNotification(settings, '🚫 *账号已临时封禁*', request, additionalData));
+                console.log(`[AntiShare] Account ${userToken} suspended until ${unfreezeDate} (failedAttempts: ${userData.stats.failedAttempts})`);
+                
+                // 保存封禁状态到KV
+                await env.MISUB_KV.put(`user:${userToken}`, JSON.stringify(userData));
+                
+                return {
+                    allowed: false,
+                    reason: 'suspended',
+                    suspendUntil,
+                    suspendReason
+                };
+            }
+        }
+        
+        // 发送设备数超限通知
         if (config.telegram.NOTIFY_ON_DEVICE_LIMIT) {
             const additionalData = `*Token:* \`${userToken}\`
 *已有设备数:* \`${deviceCount}\`
@@ -2199,15 +2263,20 @@ async function performAntiShareCheck(userToken, userData, request, env, config, 
 *新设备ID:* \`${deviceId}\`
 *新设备UA:* \`${userAgent}\`
 *城市:* \`${city}\`
-*IP:* \`${clientIp}\``;
+*IP:* \`${clientIp}\`
+*失败尝试:* \`${userData.stats.failedAttempts}\` 次（阈值: ${config.antiShare.SUSPEND_FAILED_ATTEMPTS_THRESHOLD || 5}次）`;
             context.waitUntil(sendEnhancedTgNotification(settings, '🚫 *设备数超限*', request, additionalData));
         }
+        
+        // 保存failedAttempts到KV
+        await env.MISUB_KV.put(`user:${userToken}`, JSON.stringify(userData));
         
         return {
             allowed: false,
             reason: 'device_limit',
             deviceCount,
-            maxDevices: config.antiShare.MAX_DEVICES
+            maxDevices: config.antiShare.MAX_DEVICES,
+            failedAttempts: userData.stats.failedAttempts
         };
     }
     
