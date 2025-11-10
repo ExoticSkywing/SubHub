@@ -2257,6 +2257,9 @@ async function performAntiShareCheck(userToken, userData, request, env, config, 
                     context.waitUntil(sendEnhancedTgNotification(settings, '🚫 *账号已临时封禁*', request, additionalData));
                     console.log(`[AntiShare] Account ${userToken} suspended until ${unfreezeDate} (failedAttempts: ${userData.stats.failedAttempts})`);
                     
+                    // 保存封禁状态到KV
+                    await env.MISUB_KV.put(`user:${userToken}`, JSON.stringify(userData));
+                    
                     return {
                         allowed: false,
                         reason: 'suspended',
@@ -2265,6 +2268,9 @@ async function performAntiShareCheck(userToken, userData, request, env, config, 
                     };
                 }
             }
+            
+            // 保存failedAttempts到KV
+            await env.MISUB_KV.put(`user:${userToken}`, JSON.stringify(userData));
             
             return {
                 allowed: false,
@@ -2381,6 +2387,9 @@ async function performAntiShareCheck(userToken, userData, request, env, config, 
                         context.waitUntil(sendEnhancedTgNotification(settings, '🚫 *账号已临时封禁*', request, notificationData));
                         console.log(`[AntiShare] Account ${userToken} suspended until ${unfreezeDate} (failedAttempts: ${userData.stats.failedAttempts})`);
                         
+                        // 保存封禁状态到KV
+                        await env.MISUB_KV.put(`user:${userToken}`, JSON.stringify(userData));
+                        
                         return {
                             allowed: false,
                             reason: 'suspended',
@@ -2389,6 +2398,9 @@ async function performAntiShareCheck(userToken, userData, request, env, config, 
                         };
                     }
                 }
+                
+                // 保存failedAttempts到KV
+                await env.MISUB_KV.put(`user:${userToken}`, JSON.stringify(userData));
                 
                 return {
                     allowed: false,
@@ -2510,6 +2522,9 @@ async function performAntiShareCheck(userToken, userData, request, env, config, 
             
             console.log(`[AntiShare] Account ${userToken} suspended until ${unfreezeDate}`);
             
+            // 保存封禁状态到KV
+            await env.MISUB_KV.put(`user:${userToken}`, JSON.stringify(userData));
+            
             return {
                 allowed: false,
                 reason: 'suspended',
@@ -2537,6 +2552,9 @@ async function performAntiShareCheck(userToken, userData, request, env, config, 
 *重置时间:* 明天0点(UTC+8)`;
             context.waitUntil(sendEnhancedTgNotification(settings, '⏰ *访问次数超限*', request, additionalData));
         }
+        
+        // 保存rateLimitAttempts到KV
+        await env.MISUB_KV.put(`user:${userToken}`, JSON.stringify(userData));
         
         return {
             allowed: false,
@@ -2873,10 +2891,7 @@ async function handleUserSubscription(userToken, profileId, profileToken, reques
                 console.log(`[AntiShare] Clash client detected, returning error proxy config`);
                 
                 // 保存userData的更改
-                const storageAdapter = await getStorageAdapter(env);
-                const allUserData = await storageAdapter.get(KV_KEY_USER_DATA) || {};
-                allUserData[userToken] = userData;
-                await storageAdapter.put(KV_KEY_USER_DATA, allUserData);
+                await env.MISUB_KV.put(`user:${userToken}`, JSON.stringify(userData));
                 console.log(`[AntiShare] Saved userData after rejection (failedAttempts: ${userData.stats.failedAttempts || 0}, suspended: ${!!userData.suspend})`);
                 
                 return generateErrorConfig('clash', errorMessage);
@@ -2890,10 +2905,7 @@ async function handleUserSubscription(userToken, profileId, profileToken, reques
                 console.log(`[AntiShare] Surge client detected, returning error proxy config`);
                 
                 // 保存userData的更改
-                const storageAdapter = await getStorageAdapter(env);
-                const allUserData = await storageAdapter.get(KV_KEY_USER_DATA) || {};
-                allUserData[userToken] = userData;
-                await storageAdapter.put(KV_KEY_USER_DATA, allUserData);
+                await env.MISUB_KV.put(`user:${userToken}`, JSON.stringify(userData));
                 console.log(`[AntiShare] Saved userData after rejection (failedAttempts: ${userData.stats.failedAttempts || 0}, suspended: ${!!userData.suspend})`);
                 
                 return generateErrorConfig('surge', errorMessage);
@@ -2903,10 +2915,7 @@ async function handleUserSubscription(userToken, profileId, profileToken, reques
                 console.log(`[AntiShare] Loon client detected, returning error proxy config`);
                 
                 // 保存userData的更改
-                const storageAdapter = await getStorageAdapter(env);
-                const allUserData = await storageAdapter.get(KV_KEY_USER_DATA) || {};
-                allUserData[userToken] = userData;
-                await storageAdapter.put(KV_KEY_USER_DATA, allUserData);
+                await env.MISUB_KV.put(`user:${userToken}`, JSON.stringify(userData));
                 console.log(`[AntiShare] Saved userData after rejection (failedAttempts: ${userData.stats.failedAttempts || 0}, suspended: ${!!userData.suspend})`);
                 
                 return generateErrorConfig('loon', errorMessage);
@@ -2955,10 +2964,7 @@ async function handleUserSubscription(userToken, profileId, profileToken, reques
             
             // ⚠️ 重要：保存userData的更改（失败计数器、封禁状态等）
             // 即使请求被拒绝，也要保存这些统计信息
-            const storageAdapter = await getStorageAdapter(env);
-            const allUserData = await storageAdapter.get(KV_KEY_USER_DATA) || {};
-            allUserData[userToken] = userData;
-            await storageAdapter.put(KV_KEY_USER_DATA, allUserData);
+            await env.MISUB_KV.put(`user:${userToken}`, JSON.stringify(userData));
             console.log(`[AntiShare] Saved userData after rejection (failedAttempts: ${userData.stats.failedAttempts || 0}, suspended: ${!!userData.suspend})`);
             
             return new Response(btoa(unescape(encodeURIComponent(errorContent))), {
