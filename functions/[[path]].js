@@ -1804,11 +1804,12 @@ function generateRateLimitError(dailyCount, rateLimit, deviceCount) {
  * @param {Object} userData - 用户数据
  * @param {Request} request - 请求对象
  * @param {Object} env - 环境变量
- * @param {Object} config - 配置对象
+ * @param {Object} config - 反共享配置对象（从 getConfig() 获取）
+ * @param {Object} settings - Telegram等设置（包含 BotToken、ChatID 等）
  * @param {Object} context - 上下文对象
  * @returns {Promise<Object>} - 检测结果 { allowed: boolean, reason?: string, ... }
  */
-async function performAntiShareCheck(userToken, userData, request, env, config, context) {
+async function performAntiShareCheck(userToken, userData, request, env, config, settings, context) {
     const userAgent = request.headers.get('User-Agent') || 'Unknown';
     const clientIp = request.headers.get('CF-Connecting-IP') || 'Unknown';
     
@@ -1840,7 +1841,7 @@ async function performAntiShareCheck(userToken, userData, request, env, config, 
 *新设备UA:* \`${userAgent}\`
 *城市:* \`${city}\`
 *IP:* \`${clientIp}\``;
-            context.waitUntil(sendEnhancedTgNotification(config, '🚫 *设备数超限*', request, additionalData));
+            context.waitUntil(sendEnhancedTgNotification(settings, '🚫 *设备数超限*', request, additionalData));
         }
         
         return {
@@ -1889,7 +1890,7 @@ async function performAntiShareCheck(userToken, userData, request, env, config, 
 *当前城市:* \`${city}\`
 *IP:* \`${clientIp}\`
 *原因:* 新设备+新城市（可疑共享或并发访问）`;
-                    context.waitUntil(sendEnhancedTgNotification(config, '🚫 *新设备新城市*', request, additionalData));
+                    context.waitUntil(sendEnhancedTgNotification(settings, '🚫 *新设备新城市*', request, additionalData));
                 }
                 
                 return {
@@ -1910,7 +1911,7 @@ async function performAntiShareCheck(userToken, userData, request, env, config, 
 *当前城市:* \`${city}\`
 *IP:* \`${clientIp}\`
 *原因:* 已存在设备访问新城市（疑似代理）`;
-                context.waitUntil(sendEnhancedTgNotification(config, '🌍 *城市异常*', request, additionalData));
+                context.waitUntil(sendEnhancedTgNotification(settings, '🌍 *城市异常*', request, additionalData));
             }
             
             return {
@@ -1944,7 +1945,7 @@ async function performAntiShareCheck(userToken, userData, request, env, config, 
 *城市:* \`${city}\`
 *IP:* \`${clientIp}\`
 *重置时间:* 明天0点(UTC+8)`;
-            context.waitUntil(sendEnhancedTgNotification(config, '⏰ *访问次数超限*', request, additionalData));
+            context.waitUntil(sendEnhancedTgNotification(settings, '⏰ *访问次数超限*', request, additionalData));
         }
         
         return {
@@ -2182,6 +2183,7 @@ async function handleUserSubscription(userToken, profileId, profileToken, reques
             request,
             env,
             asyncConfig,
+            config,  // settings参数：包含 BotToken、ChatID 等
             context
         );
         
