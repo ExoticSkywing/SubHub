@@ -1893,13 +1893,15 @@ function generateNewDeviceNewCityError() {
  * @param {string} deviceId - 设备ID
  * @param {Array<string>} existingCities - 已存在的城市列表
  * @param {string} newCity - 当前城市
+ * @param {number} cityCount - 当前城市数量
+ * @param {number} maxCities - 最大城市数量
  * @returns {string} - Base64编码的错误节点
  */
-function generateExistingDeviceNewCityError(deviceId, existingCities, newCity) {
+function generateExistingDeviceNewCityError(deviceId, existingCities, newCity, cityCount, maxCities) {
     const cityList = existingCities.join(', ');
     const errorNodes = [
-        `trojan://00000000-0000-0000-0000-000000000000@127.0.0.1:443#${encodeURIComponent('🌍 城市异常检测')}`,
-        `trojan://00000000-0000-0000-0000-000000000000@127.0.0.1:443#${encodeURIComponent(`已使用城市: ${cityList}`)}`,
+        `trojan://00000000-0000-0000-0000-000000000000@127.0.0.1:443#${encodeURIComponent('🌍 该城市非常用城市')}`,
+        `trojan://00000000-0000-0000-0000-000000000000@127.0.0.1:443#${encodeURIComponent(`账户已有城市 (${cityCount}/${maxCities}): ${cityList}`)}`,
         `trojan://00000000-0000-0000-0000-000000000000@127.0.0.1:443#${encodeURIComponent(`当前城市: ${newCity}`)}`,
         `trojan://00000000-0000-0000-0000-000000000000@127.0.0.1:443#${encodeURIComponent('❌ 请使用常用节点或关闭代理后重试')}`,
         `trojan://00000000-0000-0000-0000-000000000000@127.0.0.1:443#${encodeURIComponent('如持续出现此提示，请联系服务商')}`
@@ -2053,32 +2055,57 @@ async function performAntiShareCheck(userToken, userData, request, env, config, 
     const isNewCity = !device.cities[cityKey];
     const currentDeviceCount = Object.keys(userData.devices).length;
     
-    // 【检测2】已存在设备的城市变化检测
+    // 【检测2】已存在设备的城市变化检测（账户维度 + 城市白名单自动扩展）
     // 注意：新设备的城市检测已在前面处理，这里只处理已存在设备
     if (shouldCheckCity && isNewCity && !isNewDevice) {
-        // 获取当前设备已使用的城市
-        const deviceCities = Object.values(device.cities).map(c => c.city);
+        // 获取整个账户下所有设备的所有城市key（小写，去重）
+        const allCityKeysSet = new Set();
+        const allCitiesForDisplay = [];
+        Object.values(userData.devices).forEach(dev => {
+            Object.values(dev.cities).forEach(cityInfo => {
+                const key = cityInfo.city.toLowerCase();
+                if (!allCityKeysSet.has(key)) {
+                    allCityKeysSet.add(key);
+                    allCitiesForDisplay.push(cityInfo.city);
+                }
+            });
+        });
         
-        // 已存在设备 + 新城市 → 拒绝（疑似使用代理）
-        if (config.telegram.NOTIFY_ON_CITY_MISMATCH) {
-            const additionalData = `*Token:* \`${userToken}\`
+        // 如果城市在账户中已存在，直接允许
+        if (allCityKeysSet.has(cityKey)) {
+            // 设备可以在账户已有的城市间移动
+        } else {
+            // 城市不在账户中，检查是否达到城市上限
+            const currentCityCount = allCityKeysSet.size;
+            const maxCities = config.antiShare.MAX_CITIES || 5;
+            
+            if (currentCityCount >= maxCities) {
+                // 已达到城市上限，拒绝新城市
+                if (config.telegram.NOTIFY_ON_CITY_MISMATCH) {
+                    const additionalData = `*Token:* \`${userToken}\`
 *设备ID:* \`${deviceId}\`
 *设备UA:* \`${userAgent}\`
-*该设备已使用城市:* \`${deviceCities.join(', ')}\`
+*账户已有城市:* \`${allCitiesForDisplay.join(', ')}\` (${currentCityCount}/${maxCities})
 *当前城市:* \`${city}\`
 *设备数:* \`${currentDeviceCount}\`
 *IP:* \`${clientIp}\`
-*原因:* 已存在设备访问新城市（疑似代理）`;
-            context.waitUntil(sendEnhancedTgNotification(settings, '🌍 *城市异常*', request, additionalData));
+*原因:* 该城市非常用城市（账户已达${maxCities}个城市上限）`;
+                    context.waitUntil(sendEnhancedTgNotification(settings, '🌍 *城市异常*', request, additionalData));
+                }
+                
+                return {
+                    allowed: false,
+                    reason: 'existing_device_new_city',
+                    deviceId,
+                    city,
+                    existingCities: allCitiesForDisplay,
+                    cityCount: currentCityCount,
+                    maxCities
+                };
+            }
+            // 未达到城市上限，允许自动扩展（会在后续统计中记录新城市）
+            console.log(`[AntiShare] City whitelist expanding: ${city} (${currentCityCount + 1}/${maxCities})`);
         }
-        
-        return {
-            allowed: false,
-            reason: 'existing_device_new_city',
-            deviceId,
-            city,
-            existingCities: deviceCities
-        };
     }
     
     // 【检测3】访问次数限制
@@ -2363,7 +2390,9 @@ async function handleUserSubscription(userToken, profileId, profileToken, reques
                     errorContent = generateExistingDeviceNewCityError(
                         antiShareResult.deviceId,
                         antiShareResult.existingCities,
-                        antiShareResult.city
+                        antiShareResult.city,
+                        antiShareResult.cityCount,
+                        antiShareResult.maxCities
                     );
                     break;
                     

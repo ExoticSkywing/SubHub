@@ -11,6 +11,9 @@ export const ANTI_SHARE_CONFIG = {
   MAX_DEVICES: 4,              // 最大设备数量（测试建议：2）
   CITY_CHECK_START_INDEX: 2,  // 前N台设备是基线，从第N+1台开始检测城市（1=第1台是基线，从第2台开始检测；2=前2台是基线，从第3台开始检测）
   
+  // 城市限制
+  MAX_CITIES: 5,               // 账户最大城市数量，达到上限后，已存在设备访问新城市会被拒绝（测试建议：3-5）
+  
   // 访问次数限制（可选功能，默认关闭）
   RATE_LIMIT_ENABLED: true,   // 是否启用访问次数限制
   RATE_LIMITS: {
