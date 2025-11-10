@@ -1915,6 +1915,105 @@ function generateDeviceLimitError(deviceCount, maxDevices) {
 }
 
 /**
+ * 生成错误配置（支持多种客户端格式）
+ * @param {string} format - 客户端格式 (clash/surge/loon)
+ * @param {string} errorMessage - 错误信息
+ * @returns {Response} - 响应对象
+ */
+function generateErrorConfig(format, errorMessage) {
+    let configContent = '';
+    let contentType = '';
+    
+    switch (format.toLowerCase()) {
+        case 'clash':
+            configContent = `# ⚠️ 订阅访问受限
+# ${errorMessage}
+# 请联系管理员或等待限制解除
+
+port: 7890
+socks-port: 7891
+allow-lan: false
+mode: Rule
+log-level: info
+
+proxies:
+  - name: "⚠️ ${errorMessage}"
+    type: ss
+    server: 127.0.0.1
+    port: 1
+    cipher: aes-128-gcm
+    password: error
+
+proxy-groups:
+  - name: "🚫 访问受限"
+    type: select
+    proxies:
+      - "⚠️ ${errorMessage}"
+
+rules:
+  - MATCH,🚫 访问受限
+`;
+            contentType = 'text/yaml; charset=utf-8';
+            break;
+            
+        case 'surge':
+            configContent = `#!MANAGED-CONFIG https://example.com/error
+
+[General]
+skip-proxy = 127.0.0.1, 192.168.0.0/16, 10.0.0.0/8, 172.16.0.0/12, 100.64.0.0/10, localhost, *.local
+bypass-system = true
+dns-server = system
+
+[Proxy]
+⚠️ ${errorMessage} = ss, 127.0.0.1, 1, encrypt-method=aes-128-gcm, password=error
+
+[Proxy Group]
+🚫 访问受限 = select, ⚠️ ${errorMessage}
+
+[Rule]
+FINAL,🚫 访问受限
+`;
+            contentType = 'text/plain; charset=utf-8';
+            break;
+            
+        case 'loon':
+            configContent = `# ⚠️ 订阅访问受限
+# ${errorMessage}
+
+[General]
+skip-proxy = 127.0.0.1,192.168.0.0/16,10.0.0.0/8,172.16.0.0/12,localhost,*.local
+dns-server = system
+
+[Proxy]
+⚠️ ${errorMessage} = Shadowsocks,127.0.0.1,1,aes-128-gcm,"error"
+
+[Proxy Group]
+🚫 访问受限 = select,⚠️ ${errorMessage}
+
+[Rule]
+FINAL,🚫 访问受限
+`;
+            contentType = 'text/plain; charset=utf-8';
+            break;
+            
+        default:
+            // 默认返回简单的错误信息
+            configContent = `⚠️ ${errorMessage}`;
+            contentType = 'text/plain; charset=utf-8';
+    }
+    
+    return new Response(configContent, {
+        status: 200,
+        headers: {
+            'Content-Type': contentType,
+            'Cache-Control': 'no-store, no-cache',
+            'Profile-Title': '⚠️ 访问受限',
+            'Subscription-UserInfo': 'upload=0; download=0; total=0; expire=0'
+        }
+    });
+}
+
+/**
  * 生成新设备+新城市错误节点
  * @returns {string} - Base64编码的错误节点
  */
@@ -2604,47 +2703,24 @@ async function handleUserSubscription(userToken, profileId, profileToken, reques
                     break;
             }
             
-            // 🔧 对于Clash客户端，返回包含错误提示节点的配置
+            // 🔧 对于需要完整配置文件的客户端，生成错误配置
             if (isClashClient) {
                 console.log(`[AntiShare] Clash client detected, returning error proxy config`);
-                
-                const errorYaml = `# ⚠️ 订阅访问受限
-# ${errorMessage}
-# 请联系管理员或等待限制解除
-
-port: 7890
-socks-port: 7891
-allow-lan: false
-mode: Rule
-log-level: info
-
-proxies:
-  - name: "⚠️ ${errorMessage}"
-    type: ss
-    server: 127.0.0.1
-    port: 1
-    cipher: aes-128-gcm
-    password: error
-
-proxy-groups:
-  - name: "🚫 访问受限"
-    type: select
-    proxies:
-      - "⚠️ ${errorMessage}"
-
-rules:
-  - MATCH,🚫 访问受限
-`;
-                
-                return new Response(errorYaml, {
-                    status: 200,
-                    headers: {
-                        'Content-Type': 'text/yaml; charset=utf-8',
-                        'Cache-Control': 'no-store, no-cache',
-                        'Profile-Title': '⚠️ 访问受限',
-                        'Subscription-UserInfo': 'upload=0; download=0; total=0; expire=0'
-                    }
-                });
+                return generateErrorConfig('clash', errorMessage);
+            }
+            
+            // 检测其他需要完整配置的客户端
+            const isSurgeClient = /surge/i.test(userAgent);
+            const isLoonClient = /loon/i.test(userAgent);
+            
+            if (isSurgeClient) {
+                console.log(`[AntiShare] Surge client detected, returning error proxy config`);
+                return generateErrorConfig('surge', errorMessage);
+            }
+            
+            if (isLoonClient) {
+                console.log(`[AntiShare] Loon client detected, returning error proxy config`);
+                return generateErrorConfig('loon', errorMessage);
             }
             
             // 对于其他客户端（Shadowrocket/Loon），返回base64编码的错误文本
