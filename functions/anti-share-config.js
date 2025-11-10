@@ -21,7 +21,13 @@ export const ANTI_SHARE_CONFIG = {
     2: 5,   // 2台设备：4次/天（测试建议：4-5次）
     3: 15,   // 3台设备：6次/天
     4: 20    // 4台设备：8次/天
-  }
+  },
+  
+  // 账号临时封禁（悬挂）配置
+  SUSPEND_ENABLED: true,                    // 是否启用临时封禁功能
+  SUSPEND_THRESHOLD_PERCENT: 50,            // 触发封禁的访问次数百分比阈值（当天访问次数 > 限制 × 50%）
+  SUSPEND_REQUIRE_MAX_DEVICES: true,        // 是否要求设备数达到上限才触发封禁
+  SUSPEND_DURATION_DAYS: 3                  // 封禁时长（天）
 };
 
 // ============================================

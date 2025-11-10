@@ -1928,6 +1928,26 @@ function generateRateLimitError(dailyCount, rateLimit, deviceCount) {
 }
 
 /**
+ * 生成账号临时封禁错误节点
+ * @param {number} suspendUntil - 封禁到期时间戳
+ * @param {string} suspendReason - 封禁原因
+ * @returns {string} - Base64编码的错误节点
+ */
+function generateSuspendError(suspendUntil, suspendReason) {
+    const unfreezeDate = new Date(suspendUntil).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
+    const remainingDays = Math.ceil((suspendUntil - Date.now()) / (1000 * 60 * 60 * 24));
+    const errorNodes = [
+        `trojan://00000000-0000-0000-0000-000000000000@127.0.0.1:443#${encodeURIComponent('🚫 账号已临时封禁')}`,
+        `trojan://00000000-0000-0000-0000-000000000000@127.0.0.1:443#${encodeURIComponent(`原因: ${suspendReason}`)}`,
+        `trojan://00000000-0000-0000-0000-000000000000@127.0.0.1:443#${encodeURIComponent(`剩余封禁时间: ${remainingDays}天`)}`,
+        `trojan://00000000-0000-0000-0000-000000000000@127.0.0.1:443#${encodeURIComponent(`解封时间: ${unfreezeDate}`)}`,
+        `trojan://00000000-0000-0000-0000-000000000000@127.0.0.1:443#${encodeURIComponent('⏳ 到期后自动解冻')}`,
+        `trojan://00000000-0000-0000-0000-000000000000@127.0.0.1:443#${encodeURIComponent('如着急请联系服务商')}`
+    ];
+    return errorNodes.join('\n');
+}
+
+/**
  * 反共享检测核心函数
  * @param {string} userToken - 用户Token
  * @param {Object} userData - 用户数据
@@ -1953,6 +1973,28 @@ async function performAntiShareCheck(userToken, userData, request, env, config, 
     // 3. 初始化数据结构
     if (!userData.devices) {
         userData.devices = {};
+    }
+    
+    // 3.5 【检测0】账号临时封禁检测（优先级最高）
+    if (userData.suspend) {
+        const now = Date.now();
+        
+        // 检查封禁是否已过期
+        if (userData.suspend.until && now >= userData.suspend.until) {
+            // 封禁已过期，自动解冻
+            console.log(`[AntiShare] Account ${userToken} auto-unfrozen after suspension`);
+            delete userData.suspend;
+        } else {
+            // 封禁仍然有效，拒绝访问
+            console.log(`[AntiShare] Account ${userToken} is suspended until ${new Date(userData.suspend.until).toISOString()}`);
+            
+            return {
+                allowed: false,
+                reason: 'suspended',
+                suspendUntil: userData.suspend.until,
+                suspendReason: userData.suspend.reason || '可疑的高频访问行为'
+            };
+        }
     }
     
     // 4. 判断设备和城市是否存在
@@ -2119,6 +2161,53 @@ async function performAntiShareCheck(userToken, userData, request, env, config, 
     
     const rateLimit = config.antiShare.RATE_LIMITS[currentDeviceCount] || 999;
     
+    // 【检测3.1】触发临时封禁检测（在达到访问次数限制之前）
+    if (config.antiShare.SUSPEND_ENABLED) {
+        const suspendThreshold = Math.floor(rateLimit * config.antiShare.SUSPEND_THRESHOLD_PERCENT / 100);
+        const deviceAtMax = config.antiShare.SUSPEND_REQUIRE_MAX_DEVICES 
+            ? (currentDeviceCount >= config.antiShare.MAX_DEVICES)
+            : true;
+        
+        // 条件：设备数达到上限 && 访问次数超过阈值（50%）
+        if (deviceAtMax && userData.stats.dailyCount > suspendThreshold) {
+            // 触发临时封禁
+            const suspendDurationMs = config.antiShare.SUSPEND_DURATION_DAYS * 24 * 60 * 60 * 1000;
+            const suspendUntil = Date.now() + suspendDurationMs;
+            const suspendReason = `可疑的高频访问行为（${currentDeviceCount}台设备，今日已访问${userData.stats.dailyCount}次，超过限制${rateLimit}次的${config.antiShare.SUSPEND_THRESHOLD_PERCENT}%）`;
+            
+            userData.suspend = {
+                at: Date.now(),
+                until: suspendUntil,
+                reason: suspendReason,
+                deviceCount: currentDeviceCount,
+                dailyCount: userData.stats.dailyCount,
+                rateLimit
+            };
+            
+            // 发送Telegram封禁通知
+            const unfreezeDate = new Date(suspendUntil).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
+            const additionalData = `*Token:* \`${userToken}\`
+*今日访问:* \`${userData.stats.dailyCount}\` / \`${rateLimit}\` (${currentDeviceCount}台设备)
+*触发阈值:* ${suspendThreshold}次 (${config.antiShare.SUSPEND_THRESHOLD_PERCENT}%)
+*设备ID:* \`${deviceId}\`
+*城市:* \`${city}\`
+*IP:* \`${clientIp}\`
+*封禁时长:* ${config.antiShare.SUSPEND_DURATION_DAYS}天
+*解封时间:* \`${unfreezeDate}\``;
+            context.waitUntil(sendEnhancedTgNotification(settings, '🚫 *账号已临时封禁*', request, additionalData));
+            
+            console.log(`[AntiShare] Account ${userToken} suspended until ${unfreezeDate}`);
+            
+            return {
+                allowed: false,
+                reason: 'suspended',
+                suspendUntil,
+                suspendReason
+            };
+        }
+    }
+    
+    // 【检测3.2】访问次数限制（已达上限）
     if (userData.stats.dailyCount >= rateLimit) {
         // 发送Telegram通知
         if (config.telegram.NOTIFY_ON_RATE_LIMIT) {
@@ -2375,6 +2464,13 @@ async function handleUserSubscription(userToken, profileId, profileToken, reques
             let errorContent = '';
             
             switch (antiShareResult.reason) {
+                case 'suspended':
+                    errorContent = generateSuspendError(
+                        antiShareResult.suspendUntil,
+                        antiShareResult.suspendReason
+                    );
+                    break;
+                    
                 case 'device_limit':
                     errorContent = generateDeviceLimitError(
                         antiShareResult.deviceCount,
