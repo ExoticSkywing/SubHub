@@ -1888,6 +1888,11 @@ rules:
     }
     subconverterUrl.searchParams.set('new_name', 'true');
     
+    // 调试日志
+    console.log(`[Subconverter] Requesting: ${subconverterUrl.toString()}`);
+    console.log(`[Subconverter] Callback URL: ${callbackUrl}`);
+    console.log(`[Subconverter] Target: ${targetFormat}, SubConfig: ${effectiveSubConfig ? 'configured' : 'not configured'}`);
+    
     try {
         const subconverterResponse = await fetch(subconverterUrl.toString(), {
             method: 'GET',
@@ -1900,6 +1905,11 @@ rules:
         }
         
         const responseText = await subconverterResponse.text();
+        
+        // 调试日志
+        console.log(`[Subconverter] Response length: ${responseText.length} bytes`);
+        console.log(`[Subconverter] Response preview: ${responseText.substring(0, 500)}`);
+        
         const responseHeaders = new Headers(subconverterResponse.headers);
         responseHeaders.set('Content-Disposition', `attachment; filename*=utf-8''${encodeURIComponent(subName)}`);
         responseHeaders.set('Content-Type', 'text/plain; charset=utf-8');
@@ -2852,8 +2862,20 @@ async function handleMisubRequest(context) {
     const url = new URL(request.url);
     const userAgentHeader = request.headers.get('User-Agent') || "Unknown";
 
+    // 【优先级最高】检测订阅转换器请求（必须在浏览器检测之前）
+    // 订阅转换器的UA通常是"Mozilla/5.0"，但有特征请求头
+    const isSubconverterRequest = 
+        request.headers.get('subconverter-request') === '1' ||
+        request.headers.has('subconverter-version') ||
+        url.searchParams.has('callback_token');
+    
+    if (isSubconverterRequest) {
+        console.log(`[Subconverter] Detected subconverter request, bypassing browser check`);
+    }
+    
     // 🌐 检测浏览器访问（只允许代理客户端访问）
-    if (isBrowserAccess(userAgentHeader)) {
+    // 但要排除订阅转换器的callback请求
+    if (!isSubconverterRequest && isBrowserAccess(userAgentHeader)) {
         console.log(`🌐 Blocked browser request from: ${userAgentHeader}`);
         return getBrowserBlockedResponse();
     }
