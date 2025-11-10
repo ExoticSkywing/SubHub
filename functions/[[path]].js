@@ -2198,11 +2198,15 @@ async function performAntiShareCheck(userToken, userData, request, env, config, 
                 context.waitUntil(sendEnhancedTgNotification(settings, '🚫 *新设备新城市*', request, additionalData));
             }
             
+            // 记录失败尝试次数
+            userData.stats.failedAttempts = (userData.stats.failedAttempts || 0) + 1;
+            
             return {
                 allowed: false,
                 reason: 'new_device_new_city',
                 deviceId,
-                city
+                city,
+                failedAttempts: userData.stats.failedAttempts
             };
         }
     }
@@ -2310,23 +2314,47 @@ async function performAntiShareCheck(userToken, userData, request, env, config, 
     if (!userData.stats.dailyDate || userData.stats.dailyDate !== today) {
         userData.stats.dailyCount = 0;
         userData.stats.dailyDate = today;
+        userData.stats.failedAttempts = 0;  // 每天重置失败尝试计数
+        userData.stats.rateLimitAttempts = 0;  // 每天重置达到上限后的尝试计数
     }
     
     const rateLimit = config.antiShare.RATE_LIMITS[currentDeviceCount] || 999;
     
-    // 【检测3.1】触发临时封禁检测（在达到访问次数限制之前）
+    // 【检测3.1】触发临时封禁检测（检测账号共享行为）
     if (config.antiShare.SUSPEND_ENABLED) {
-        const suspendThreshold = Math.floor(rateLimit * config.antiShare.SUSPEND_THRESHOLD_PERCENT / 100);
         const deviceAtMax = config.antiShare.SUSPEND_REQUIRE_MAX_DEVICES 
             ? (currentDeviceCount >= config.antiShare.MAX_DEVICES)
             : true;
         
-        // 条件：设备数达到上限 && 访问次数超过阈值（50%）
-        if (deviceAtMax && userData.stats.dailyCount > suspendThreshold) {
+        // 初始化计数器
+        const failedAttempts = userData.stats.failedAttempts || 0;  // 其他失败（如新设备新城市）
+        const rateLimitAttempts = userData.stats.rateLimitAttempts || 0;  // 达到上限后的失败次数
+        
+        // 失败次数阈值（从配置读取）
+        const rateLimitAttemptsThreshold = config.antiShare.SUSPEND_RATE_LIMIT_ATTEMPTS_THRESHOLD || 10;
+        const failedAttemptsThreshold = config.antiShare.SUSPEND_FAILED_ATTEMPTS_THRESHOLD || 5;
+        
+        // 条件1：达到上限后，失败次数过多（账号共享的关键证据）
+        // rateLimitAttempts 只有在 dailyCount >= rateLimit 时才会增加，所以不需要额外判断
+        const suspendByRateLimitAttempts = rateLimitAttempts >= rateLimitAttemptsThreshold;
+        
+        // 条件2：其他类型的失败过多（如新设备新城市）
+        const suspendByFailedAttempts = failedAttempts >= failedAttemptsThreshold;
+        
+        if (deviceAtMax && (suspendByRateLimitAttempts || suspendByFailedAttempts)) {
             // 触发临时封禁
             const suspendDurationMs = config.antiShare.SUSPEND_DURATION_DAYS * 24 * 60 * 60 * 1000;
             const suspendUntil = Date.now() + suspendDurationMs;
-            const suspendReason = `可疑的高频访问行为（${currentDeviceCount}台设备，今日已访问${userData.stats.dailyCount}次，超过限制${rateLimit}次的${config.antiShare.SUSPEND_THRESHOLD_PERCENT}%）`;
+            
+            // 根据触发原因生成不同的封禁理由
+            let suspendReason = '';
+            if (suspendByRateLimitAttempts) {
+                suspendReason = `检测到账号共享行为（达到上限后仍有${rateLimitAttempts}次尝试访问，疑似多人共享）`;
+            } else if (suspendByFailedAttempts) {
+                suspendReason = `可疑的高频失败尝试（${failedAttempts}次失败尝试，疑似账号共享或滥用）`;
+            } else {
+                suspendReason = `可疑的高频访问行为`;
+            }
             
             userData.suspend = {
                 at: Date.now(),
@@ -2339,14 +2367,32 @@ async function performAntiShareCheck(userToken, userData, request, env, config, 
             
             // 发送Telegram封禁通知
             const unfreezeDate = new Date(suspendUntil).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
-            const additionalData = `*Token:* \`${userToken}\`
-*今日访问:* \`${userData.stats.dailyCount}\` / \`${rateLimit}\` (${currentDeviceCount}台设备)
-*触发阈值:* ${suspendThreshold}次 (${config.antiShare.SUSPEND_THRESHOLD_PERCENT}%)
+            let additionalData = `*Token:* \`${userToken}\`
 *设备ID:* \`${deviceId}\`
 *城市:* \`${city}\`
 *IP:* \`${clientIp}\`
 *封禁时长:* ${config.antiShare.SUSPEND_DURATION_DAYS}天
-*解封时间:* \`${unfreezeDate}\``;
+*解封时间:* \`${unfreezeDate}\`
+
+*触发原因:*`;
+            
+            if (suspendByRateLimitAttempts) {
+                additionalData += `
+- 今日访问: \`${userData.stats.dailyCount}\` / \`${rateLimit}\` (${currentDeviceCount}台设备)
+- 达到上限后失败: \`${rateLimitAttempts}\` 次（阈值: ${rateLimitAttemptsThreshold}次）
+- ⚠️ 检测到账号共享行为（达到上限后仍有大量访问，疑似多人共享）`;
+            } else if (suspendByFailedAttempts) {
+                additionalData += `
+- 失败尝试: \`${failedAttempts}\` 次（阈值: ${failedAttemptsThreshold}次）
+- 今日访问: \`${userData.stats.dailyCount}\` / \`${rateLimit}\` (${currentDeviceCount}台设备)
+- ⚠️ 疑似账号共享或滥用（如新设备新城市）`;
+            } else {
+                additionalData += `
+- 今日访问: \`${userData.stats.dailyCount}\` / \`${rateLimit}\` (${currentDeviceCount}台设备)
+- 达到上限后失败: \`${rateLimitAttempts}\` 次
+- ⚠️ 可疑的高频访问行为`;
+            }
+            
             context.waitUntil(sendEnhancedTgNotification(settings, '🚫 *账号已临时封禁*', request, additionalData));
             
             console.log(`[AntiShare] Account ${userToken} suspended until ${unfreezeDate}`);
@@ -2362,11 +2408,16 @@ async function performAntiShareCheck(userToken, userData, request, env, config, 
     
     // 【检测3.2】访问次数限制（已达上限）
     if (userData.stats.dailyCount >= rateLimit) {
+        // 🔍 关键：记录达到上限后的尝试次数（用于检测账号共享）
+        // 正常用户达到上限后不会继续访问，但共享账号会有多人继续尝试
+        userData.stats.rateLimitAttempts = (userData.stats.rateLimitAttempts || 0) + 1;
+        
         // 发送Telegram通知
         if (config.telegram.NOTIFY_ON_RATE_LIMIT) {
             const additionalData = `*Token:* \`${userToken}\`
 *今日访问:* \`${userData.stats.dailyCount}\`
 *限制次数:* \`${rateLimit}\` (${currentDeviceCount}台设备)
+*达到上限后尝试:* \`${userData.stats.rateLimitAttempts}\` 次
 *设备ID:* \`${deviceId}\`
 *城市:* \`${city}\`
 *IP:* \`${clientIp}\`
@@ -2379,7 +2430,8 @@ async function performAntiShareCheck(userToken, userData, request, env, config, 
             reason: 'rate_limit',
             dailyCount: userData.stats.dailyCount,
             rateLimit,
-            deviceCount: currentDeviceCount
+            deviceCount: currentDeviceCount,
+            rateLimitAttempts: userData.stats.rateLimitAttempts
         };
     }
     
@@ -2706,6 +2758,14 @@ async function handleUserSubscription(userToken, profileId, profileToken, reques
             // 🔧 对于需要完整配置文件的客户端，生成错误配置
             if (isClashClient) {
                 console.log(`[AntiShare] Clash client detected, returning error proxy config`);
+                
+                // 保存userData的更改
+                const storageAdapter = await getStorageAdapter(env);
+                const allUserData = await storageAdapter.get(KV_KEY_USER_DATA) || {};
+                allUserData[userToken] = userData;
+                await storageAdapter.put(KV_KEY_USER_DATA, allUserData);
+                console.log(`[AntiShare] Saved userData after rejection (failedAttempts: ${userData.stats.failedAttempts || 0}, suspended: ${!!userData.suspend})`);
+                
                 return generateErrorConfig('clash', errorMessage);
             }
             
@@ -2715,11 +2775,27 @@ async function handleUserSubscription(userToken, profileId, profileToken, reques
             
             if (isSurgeClient) {
                 console.log(`[AntiShare] Surge client detected, returning error proxy config`);
+                
+                // 保存userData的更改
+                const storageAdapter = await getStorageAdapter(env);
+                const allUserData = await storageAdapter.get(KV_KEY_USER_DATA) || {};
+                allUserData[userToken] = userData;
+                await storageAdapter.put(KV_KEY_USER_DATA, allUserData);
+                console.log(`[AntiShare] Saved userData after rejection (failedAttempts: ${userData.stats.failedAttempts || 0}, suspended: ${!!userData.suspend})`);
+                
                 return generateErrorConfig('surge', errorMessage);
             }
             
             if (isLoonClient) {
                 console.log(`[AntiShare] Loon client detected, returning error proxy config`);
+                
+                // 保存userData的更改
+                const storageAdapter = await getStorageAdapter(env);
+                const allUserData = await storageAdapter.get(KV_KEY_USER_DATA) || {};
+                allUserData[userToken] = userData;
+                await storageAdapter.put(KV_KEY_USER_DATA, allUserData);
+                console.log(`[AntiShare] Saved userData after rejection (failedAttempts: ${userData.stats.failedAttempts || 0}, suspended: ${!!userData.suspend})`);
+                
                 return generateErrorConfig('loon', errorMessage);
             }
             
@@ -2763,6 +2839,14 @@ async function handleUserSubscription(userToken, profileId, profileToken, reques
                     );
                     break;
             }
+            
+            // ⚠️ 重要：保存userData的更改（失败计数器、封禁状态等）
+            // 即使请求被拒绝，也要保存这些统计信息
+            const storageAdapter = await getStorageAdapter(env);
+            const allUserData = await storageAdapter.get(KV_KEY_USER_DATA) || {};
+            allUserData[userToken] = userData;
+            await storageAdapter.put(KV_KEY_USER_DATA, allUserData);
+            console.log(`[AntiShare] Saved userData after rejection (failedAttempts: ${userData.stats.failedAttempts || 0}, suspended: ${!!userData.suspend})`);
             
             return new Response(btoa(unescape(encodeURIComponent(errorContent))), {
                 status: 200,

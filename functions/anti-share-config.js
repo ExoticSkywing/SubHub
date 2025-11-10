@@ -23,11 +23,14 @@ export const ANTI_SHARE_CONFIG = {
     4: 9    // 4台设备：8次/天
   },
   
-  // 账号临时封禁（悬挂）配置
-  SUSPEND_ENABLED: true,                    // 是否启用临时封禁功能
-  SUSPEND_THRESHOLD_PERCENT: 5,            // 触发封禁的访问次数百分比阈值（当天访问次数 > 限制 × 50%）
-  SUSPEND_REQUIRE_MAX_DEVICES: true,        // 是否要求设备数达到上限才触发封禁
-  SUSPEND_DURATION_DAYS: 3                  // 封禁时长（天）
+  // 账号临时封禁（悬挂）配置 - 用于检测账号共享行为
+  SUSPEND_ENABLED: true,                          // 是否启用临时封禁机制
+  SUSPEND_REQUIRE_MAX_DEVICES: false,             // 是否要求设备数达到上限才触发封禁（测试：false，生产：false）
+  SUSPEND_DURATION_DAYS: 7,                       // 封禁时长（天）
+  
+  // 两种封禁触发条件（满足任一即触发）：
+  SUSPEND_RATE_LIMIT_ATTEMPTS_THRESHOLD: 10,      // 达到每日上限后，失败访问次数阈值（正常用户达到上限不会继续访问，但共享账号会有多人尝试）
+  SUSPEND_FAILED_ATTEMPTS_THRESHOLD: 5            // 其他失败尝试阈值（如新设备新城市等，防止恶意刷新）
 };
 
 // ============================================
