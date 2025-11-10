@@ -1700,9 +1700,10 @@ async function generateCombinedNodeList(context, config, userAgent, misubs, prep
  * 判断目标订阅格式
  * @param {URL} url - 请求URL
  * @param {string} userAgent - User-Agent字符串
+ * @param {string} effectiveSubConfig - 订阅配置（可选，用于降级判断）
  * @returns {string} - 目标格式（clash/singbox/surge/loon/base64等）
  */
-function determineTargetFormat(url, userAgent) {
+function determineTargetFormat(url, userAgent, effectiveSubConfig = null) {
     let targetFormat = url.searchParams.get('target');
     
     if (!targetFormat) {
@@ -1741,6 +1742,14 @@ function determineTargetFormat(url, userAgent) {
                 targetFormat = format;
                 break;
             }
+        }
+    }
+    
+    // 降级逻辑：如果格式需要SubConfig但未配置，降级到base64（通用格式）
+    if (targetFormat && (targetFormat === 'clash' || targetFormat === 'loon' || targetFormat === 'surge')) {
+        if (!effectiveSubConfig || effectiveSubConfig.trim() === '') {
+            console.log(`[Format] ${targetFormat} requires SubConfig but not configured, fallback to base64 (universal format)`);
+            targetFormat = 'base64';
         }
     }
     
@@ -2611,9 +2620,9 @@ async function handleUserSubscription(userToken, profileId, profileToken, reques
         console.log(`[UserSub] nodeLinks length: ${nodeLinks?.length || 0}`);
         console.log(`[UserSub] nodeLinks preview: ${nodeLinks?.substring(0, 100)}`);
         
-        // 11. 判断目标格式（复用公共函数）
+        // 11. 判断目标格式（复用公共函数，如果格式需要SubConfig但未配置则降级到base64）
         const url = new URL(request.url);
-        const targetFormat = determineTargetFormat(url, userAgent);
+        const targetFormat = determineTargetFormat(url, userAgent, effectiveSubConfig);
         
         // 12. 如果是base64格式，直接返回
         if (targetFormat === 'base64') {
@@ -2812,8 +2821,8 @@ async function handleMisubRequest(context) {
         return new Response('Subconverter backend is not configured.', { status: 500 });
     }
     
-    // 复用公共函数判断目标格式
-    const targetFormat = determineTargetFormat(url, userAgentHeader);
+    // 复用公共函数判断目标格式（如果格式需要SubConfig但未配置则降级到base64）
+    const targetFormat = determineTargetFormat(url, userAgentHeader, effectiveSubConfig);
 
     if (!url.searchParams.has('callback_token')) {
         const clientIp = request.headers.get('CF-Connecting-IP') || 'N/A';
