@@ -260,7 +260,7 @@ import { fetchUsers as apiFetchUsers, unsuspendUser as apiUnsuspendUser, deleteU
 import { useToastStore } from '../stores/toast.js';
 import UserDetailModal from './UserDetailModal.vue';
 
-const showToast = useToastStore().show;
+const { showToast } = useToastStore();
 
 const users = ref([]);
 const profiles = ref([]);
@@ -361,14 +361,14 @@ async function unsuspendUser(token) {
   try {
     const result = await apiUnsuspendUser(token);
     if (result.success) {
-      showToast('用户已解封', 'success');
-      loadUsers();
+      showToast('🔓 用户已解封', 'success');
+      await loadUsers();
     } else {
-      showToast(result.message || '解封失败', 'error');
+      showToast('❌ ' + (result.message || '解封失败'), 'error');
     }
   } catch (error) {
     console.error('Unsuspend user error:', error);
-    showToast('解封失败', 'error');
+    showToast('❌ 解封失败：' + error.message, 'error');
   }
 }
 
@@ -384,14 +384,20 @@ async function deleteUserData(token) {
   try {
     const result = await apiDeleteUser(token);
     if (result.success) {
-      showToast('用户已删除', 'success');
-      loadUsers();
+      // 立即从界面移除该用户
+      users.value = users.value.filter(u => u.token !== token);
+      // 更新总数
+      pagination.value.total--;
+      // 显示成功提示
+      showToast('✅ 用户已删除', 'success');
+      // 重新加载以更新分页
+      await loadUsers();
     } else {
-      showToast(result.message || '删除失败', 'error');
+      showToast('❌ ' + (result.message || '删除失败'), 'error');
     }
   } catch (error) {
     console.error('Delete user error:', error);
-    showToast('删除失败', 'error');
+    showToast('❌ 删除失败：' + error.message, 'error');
   }
 }
 
@@ -399,10 +405,10 @@ async function deleteUserData(token) {
 async function copyToClipboard(text) {
   try {
     await navigator.clipboard.writeText(text);
-    showToast('已复制到剪贴板', 'success');
+    showToast('📋 已复制到剪贴板', 'success');
   } catch (error) {
     console.error('Copy error:', error);
-    showToast('复制失败', 'error');
+    showToast('❌ 复制失败：' + error.message, 'error');
   }
 }
 

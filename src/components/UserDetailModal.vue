@@ -236,7 +236,7 @@ const props = defineProps({
 });
 
 const emit = defineEmits(['close', 'updated']);
-const showToast = useToastStore().show;
+const { showToast } = useToastStore();
 
 const show = ref(true);
 const loading = ref(false);
@@ -263,11 +263,11 @@ async function loadUserDetail() {
       editData.value.profileId = result.data.profileId;
       editData.value.expiresAt = result.data.expiresAt ? formatDateForInput(result.data.expiresAt) : '';
     } else {
-      showToast(result.error || '加载用户详情失败', 'error');
+      showToast('❌ ' + (result.error || '加载用户详情失败'), 'error');
     }
   } catch (error) {
     console.error('Load user detail error:', error);
-    showToast('加载用户详情失败', 'error');
+    showToast('❌ 加载用户详情失败：' + error.message, 'error');
   } finally {
     loading.value = false;
   }
@@ -301,16 +301,16 @@ async function handleSave() {
     const result = await updateUser(props.token, updates);
     
     if (result.success) {
-      showToast('用户信息已更新', 'success');
+      showToast('✅ 用户信息已更新', 'success');
       hasChanges.value = false;
       emit('updated');
       await loadUserDetail();
     } else {
-      showToast(result.message || '更新失败', 'error');
+      showToast('❌ ' + (result.message || '更新失败'), 'error');
     }
   } catch (error) {
     console.error('Update user error:', error);
-    showToast('更新失败', 'error');
+    showToast('❌ 更新失败：' + error.message, 'error');
   } finally {
     saving.value = false;
   }
@@ -325,15 +325,15 @@ async function handleUnsuspend() {
     const result = await apiUnsuspendUser(props.token);
     
     if (result.success) {
-      showToast('用户已解封', 'success');
+      showToast('🔓 用户已解封', 'success');
       emit('updated');
       await loadUserDetail();
     } else {
-      showToast(result.message || '解封失败', 'error');
+      showToast('❌ ' + (result.message || '解封失败'), 'error');
     }
   } catch (error) {
     console.error('Unsuspend user error:', error);
-    showToast('解封失败', 'error');
+    showToast('❌ 解封失败：' + error.message, 'error');
   } finally {
     saving.value = false;
   }
