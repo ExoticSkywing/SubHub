@@ -408,11 +408,40 @@ async function deleteUserData(token) {
   }
 }
 
-// 复制到剪贴板
+// 复制到剪贴板（兼容移动端）
 async function copyToClipboard(text) {
   try {
-    await navigator.clipboard.writeText(text);
-    showToast('📋 已复制到剪贴板', 'success');
+    // 优先使用现代 Clipboard API
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(text);
+      showToast('📋 已复制到剪贴板', 'success');
+      return;
+    }
+    
+    // 降级方案：使用传统的 document.execCommand
+    const textArea = document.createElement('textarea');
+    textArea.value = text;
+    textArea.style.position = 'fixed';
+    textArea.style.left = '-999999px';
+    textArea.style.top = '-999999px';
+    document.body.appendChild(textArea);
+    textArea.focus();
+    textArea.select();
+    
+    try {
+      const successful = document.execCommand('copy');
+      document.body.removeChild(textArea);
+      
+      if (successful) {
+        showToast('📋 已复制到剪贴板', 'success');
+      } else {
+        showToast('❌ 复制失败，请手动复制', 'error');
+      }
+    } catch (err) {
+      document.body.removeChild(textArea);
+      showToast('❌ 复制失败，请手动复制', 'error');
+      console.error('Copy fallback error:', err);
+    }
   } catch (error) {
     console.error('Copy error:', error);
     showToast('❌ 复制失败：' + error.message, 'error');
