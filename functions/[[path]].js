@@ -955,6 +955,7 @@ async function handleApiRequest(request, env) {
                                 citiesMap.set(cityKey, {
                                     id: cityKey,
                                     name: cityData.city || 'Unknown',
+                                    ip: cityData.ip || 'Unknown',  // 返回 IP 地址
                                     firstSeen: cityData.firstSeen,
                                     lastSeen: cityData.lastSeen
                                 });
@@ -3097,11 +3098,18 @@ async function performAntiShareCheck(userToken, userData, request, env, config, 
         device.cities[cityKey] = {
             city,
             name: city,  // 城市名称
+            ip: clientIp,  // 记录首次访问的 IP
             firstSeen: Date.now(),
             lastSeen: Date.now(),
             count: 0
         };
     }
+    
+    // 兼容旧数据：如果已存在的城市没有 IP 字段，补充当前 IP
+    if (!device.cities[cityKey].ip) {
+        device.cities[cityKey].ip = clientIp;
+    }
+    
     device.cities[cityKey].lastSeen = Date.now();
     device.cities[cityKey].count++;
     

@@ -182,7 +182,7 @@
                     <tr>
                       <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">城市ID</th>
                       <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">城市名称</th>
-                      <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">激活时间</th>
+                      <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">IP 地址</th>
                       <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">最后使用</th>
                     </tr>
                   </thead>
@@ -190,7 +190,9 @@
                     <tr v-for="city in userDetail.cities" :key="city.id" class="hover:bg-gray-100 dark:hover:bg-gray-800">
                       <td class="px-4 py-2"><code class="text-xs">{{ city.id }}</code></td>
                       <td class="px-4 py-2 text-gray-900 dark:text-white">{{ city.name }}</td>
-                      <td class="px-4 py-2 text-gray-600 dark:text-gray-400">{{ formatDate(city.activatedAt) }}</td>
+                      <td class="px-4 py-2">
+                        <code class="text-xs text-blue-600 dark:text-blue-400">{{ city.ip || 'Unknown' }}</code>
+                      </td>
                       <td class="px-4 py-2 text-gray-600 dark:text-gray-400">{{ formatDate(city.lastSeen) }}</td>
                     </tr>
                   </tbody>
