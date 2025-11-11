@@ -352,7 +352,11 @@ async function sendEnhancedTgNotification(settings, type, request, additionalDat
     return false;
   }
   
-  const clientIp = request.headers.get('CF-Connecting-IP') || 'N/A';
+  // 使用与 performAntiShareCheck 相同的 IP 获取逻辑（多层降级）
+  const clientIp = request.headers.get('CF-Connecting-IP') 
+    || request.headers.get('X-Forwarded-For')?.split(',')[0]?.trim()
+    || request.headers.get('X-Real-IP')
+    || 'N/A';
   let locationInfo = '';
   let geoSource = 'unknown';
   
@@ -851,7 +855,7 @@ async function handleApiRequest(request, env) {
                 const profile = profileMap.get(userData.profileId);
                 const effectiveAntiShareConfig = resolveAntiShareConfig(profile, userData, asyncConfig);
                 
-                // 计算唯一城市数量（从所有设备的城市列表中收集）
+                // 计算唯一城市数量（从所有设备的城市列表中收集，与详情页保持一致）
                 const uniqueCities = new Set();
                 Object.values(userData.devices || {}).forEach(device => {
                     Object.keys(device.cities || {}).forEach(cityKey => {
@@ -867,7 +871,7 @@ async function handleApiRequest(request, env) {
                     status: userData.status,
                     deviceCount: Object.keys(userData.devices || {}).length,
                     deviceLimit: effectiveAntiShareConfig.MAX_DEVICES,
-                    cityCount: uniqueCities.size,
+                    cityCount: uniqueCities.size,  // 使用从 device.cities 收集的唯一城市数
                     cityLimit: effectiveAntiShareConfig.MAX_CITIES,
                     activatedAt: userData.activatedAt,
                     expiresAt: userData.expiresAt,

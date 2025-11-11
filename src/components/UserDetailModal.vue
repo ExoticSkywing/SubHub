@@ -191,7 +191,8 @@
                       <td class="px-4 py-2"><code class="text-xs">{{ city.id }}</code></td>
                       <td class="px-4 py-2 text-gray-900 dark:text-white">{{ city.name }}</td>
                       <td class="px-4 py-2">
-                        <code class="text-xs text-blue-600 dark:text-blue-400">{{ city.ip || 'Unknown' }}</code>
+                        <code v-if="city.ip && city.ip !== 'Unknown'" class="text-xs text-blue-600 dark:text-blue-400">{{ city.ip }}</code>
+                        <span v-else class="text-xs text-gray-400 dark:text-gray-500 italic">等待下次访问更新</span>
                       </td>
                       <td class="px-4 py-2 text-gray-600 dark:text-gray-400">{{ formatDate(city.lastSeen) }}</td>
                     </tr>
