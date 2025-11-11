@@ -408,39 +408,68 @@ async function deleteUserData(token) {
   }
 }
 
-// 复制到剪贴板（兼容移动端）
+// 复制到剪贴板（兼容移动端，特别优化 iOS Safari）
 async function copyToClipboard(text) {
   try {
-    // 优先使用现代 Clipboard API
+    // 方案1：优先使用现代 Clipboard API
     if (navigator.clipboard && navigator.clipboard.writeText) {
-      await navigator.clipboard.writeText(text);
-      showToast('📋 已复制到剪贴板', 'success');
-      return;
+      try {
+        await navigator.clipboard.writeText(text);
+        showToast('📋 已复制到剪贴板', 'success');
+        return;
+      } catch (clipboardError) {
+        console.log('Clipboard API 失败，尝试降级方案:', clipboardError);
+      }
     }
     
-    // 降级方案：使用传统的 document.execCommand
+    // 方案2：iOS Safari 兼容的 execCommand 方案
     const textArea = document.createElement('textarea');
     textArea.value = text;
-    textArea.style.position = 'fixed';
-    textArea.style.left = '-999999px';
-    textArea.style.top = '-999999px';
-    document.body.appendChild(textArea);
-    textArea.focus();
-    textArea.select();
     
+    // iOS Safari 需要 textarea 在视口内但不可见
+    textArea.style.position = 'fixed';
+    textArea.style.top = '0';
+    textArea.style.left = '0';
+    textArea.style.width = '2em';
+    textArea.style.height = '2em';
+    textArea.style.padding = '0';
+    textArea.style.border = 'none';
+    textArea.style.outline = 'none';
+    textArea.style.boxShadow = 'none';
+    textArea.style.background = 'transparent';
+    textArea.style.opacity = '0';
+    textArea.style.pointerEvents = 'none';
+    textArea.setAttribute('readonly', '');
+    
+    document.body.appendChild(textArea);
+    
+    // iOS Safari 特殊处理
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+    if (isIOS) {
+      const range = document.createRange();
+      range.selectNodeContents(textArea);
+      const selection = window.getSelection();
+      selection.removeAllRanges();
+      selection.addRange(range);
+      textArea.setSelectionRange(0, text.length);
+    } else {
+      textArea.select();
+    }
+    
+    let successful = false;
     try {
-      const successful = document.execCommand('copy');
-      document.body.removeChild(textArea);
-      
-      if (successful) {
-        showToast('📋 已复制到剪贴板', 'success');
-      } else {
-        showToast('❌ 复制失败，请手动复制', 'error');
-      }
+      successful = document.execCommand('copy');
     } catch (err) {
-      document.body.removeChild(textArea);
+      console.error('execCommand 失败:', err);
+    }
+    
+    document.body.removeChild(textArea);
+    
+    if (successful) {
+      showToast('📋 已复制到剪贴板', 'success');
+    } else {
       showToast('❌ 复制失败，请手动复制', 'error');
-      console.error('Copy fallback error:', err);
+      console.error('Copy failed: execCommand returned false');
     }
   } catch (error) {
     console.error('Copy error:', error);
