@@ -44,6 +44,8 @@
             <option value="">全部状态</option>
             <option value="pending">待激活</option>
             <option value="activated">已激活</option>
+            <option value="expired">已过期</option>
+            <option value="suspended">已封禁</option>
           </select>
         </div>
 
@@ -114,6 +116,9 @@
               <td class="px-4 py-3">
                 <span v-if="user.isSuspended" class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200">
                   已封禁
+                </span>
+                <span v-else-if="user.isExpired" class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200">
+                  已过期
                 </span>
                 <span v-else-if="user.status === 'activated'" class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">
                   已激活
@@ -187,6 +192,9 @@
             </div>
             <span v-if="user.isSuspended" class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200">
               已封禁
+            </span>
+            <span v-else-if="user.isExpired" class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200">
+              已过期
             </span>
             <span v-else-if="user.status === 'activated'" class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">
               已激活

@@ -827,7 +827,9 @@ async function handleApiRequest(request, env) {
                 conditions.push("json_extract(data, '$.profileId') = ?");
                 params.push(profileId);
             }
-            if (status) {
+            // 状态筛选：pending 和 activated 可以直接 SQL 查询
+            // expired 和 suspended 需要在内存中过滤
+            if (status && (status === 'pending' || status === 'activated')) {
                 conditions.push("json_extract(data, '$.status') = ?");
                 params.push(status);
             }
@@ -840,8 +842,14 @@ async function handleApiRequest(request, env) {
                 query += ' WHERE ' + conditions.join(' AND ');
             }
             
-            query += ' ORDER BY created_at DESC LIMIT ? OFFSET ?';
-            params.push(pageSize, page * pageSize);
+            query += ' ORDER BY created_at DESC';
+            
+            // 对于 expired 和 suspended 状态，不使用 LIMIT，后面在内存中过滤
+            // 对于其他筛选，使用 LIMIT 提高性能
+            if (!status || status === 'pending' || status === 'activated') {
+                query += ' LIMIT ? OFFSET ?';
+                params.push(pageSize, page * pageSize);
+            }
             
             // 查询用户
             const result = await env.MISUB_DB.prepare(query).bind(...params).all();
@@ -860,7 +868,8 @@ async function handleApiRequest(request, env) {
             
             // 组装数据
             const asyncConfig = getConfig();
-            const users = result.results.map(row => {
+            const now = Date.now();
+            let users = result.results.map(row => {
                 const userData = JSON.parse(row.data);
                 const profile = profileMap.get(userData.profileId);
                 const effectiveAntiShareConfig = resolveAntiShareConfig(profile, userData, asyncConfig);
@@ -874,6 +883,9 @@ async function handleApiRequest(request, env) {
                         });
                     }
                 });
+                
+                const isSuspended = userData.suspend?.status === 'suspended';
+                const isExpired = userData.expiresAt && userData.expiresAt < now;
                 
                 return {
                     token: row.token,
@@ -889,19 +901,42 @@ async function handleApiRequest(request, env) {
                     expiresAt: userData.expiresAt,
                     createdAt: row.created_at,
                     updatedAt: row.updated_at,
-                    isSuspended: userData.suspend?.status === 'suspended',
+                    isSuspended,
+                    isExpired,
                     suspendReason: userData.suspend?.reason || null
                 };
             });
             
-            // 获取总数（用于分页）
-            let countQuery = 'SELECT COUNT(*) as total FROM users';
-            if (conditions.length > 0) {
-                countQuery += ' WHERE ' + conditions.join(' AND ');
+            // 【内存过滤】expired 和 suspended 状态
+            if (status === 'expired') {
+                users = users.filter(user => user.isExpired);
+            } else if (status === 'suspended') {
+                users = users.filter(user => user.isSuspended);
             }
-            const countResult = await env.MISUB_DB.prepare(countQuery)
-                .bind(...params.slice(0, -2))
-                .first();
+            
+            // 分页处理（如果之前没有在 SQL 中分页）
+            const totalBeforePaging = users.length;
+            if (status === 'expired' || status === 'suspended') {
+                const startIndex = page * pageSize;
+                users = users.slice(startIndex, startIndex + pageSize);
+            }
+            
+            // 获取总数（用于分页）
+            let total;
+            if (status === 'expired' || status === 'suspended') {
+                // 对于 expired 和 suspended，使用过滤后的总数
+                total = totalBeforePaging;
+            } else {
+                // 对于其他状态，从数据库查询总数
+                let countQuery = 'SELECT COUNT(*) as total FROM users';
+                if (conditions.length > 0) {
+                    countQuery += ' WHERE ' + conditions.join(' AND ');
+                }
+                const countResult = await env.MISUB_DB.prepare(countQuery)
+                    .bind(...params.slice(0, -2))
+                    .first();
+                total = countResult.total;
+            }
             
             return new Response(JSON.stringify({
                 success: true,
@@ -909,8 +944,8 @@ async function handleApiRequest(request, env) {
                 pagination: {
                     page,
                     pageSize,
-                    total: countResult.total,
-                    totalPages: Math.ceil(countResult.total / pageSize)
+                    total,
+                    totalPages: Math.ceil(total / pageSize)
                 }
             }), {
                 headers: { 'Content-Type': 'application/json' }
