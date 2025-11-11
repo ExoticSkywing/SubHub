@@ -153,7 +153,8 @@ watch(() => props.profile, (newProfile) => {
         enableManualNodes: null,
         enableSubscriptions: null,
         manualNodePrefix: ''
-      }
+      },
+      policyKey: ''  // 反共享策略模板
     };
   }
 }, { deep: true, immediate: true });
@@ -317,6 +318,34 @@ const handleDeselectAll = (listName, sourceArray) => {
                 </div>
               </div>
               <p class="text-xs text-gray-400 mt-1">单独为此订阅组配置前缀设置，优先级高于全局设置。</p>
+            </div>
+            
+            <!-- 反共享策略配置 -->
+            <div class="col-span-1 sm:col-span-2">
+              <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
+                反共享策略配置 (可选)
+              </label>
+              <div class="space-y-3 bg-gray-50 dark:bg-gray-800/50 rounded-lg p-3">
+                <div>
+                  <label for="policy-key" class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                    策略模板
+                  </label>
+                  <select 
+                    id="policy-key"
+                    v-model="localProfile.policyKey" 
+                    class="block w-full text-sm bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded px-3 py-2 focus:outline-hidden focus:ring-indigo-500 focus:border-indigo-500 dark:text-white"
+                  >
+                    <option value="">使用全局默认</option>
+                    <option value="basic">基础套餐 (2台设备, 严格限制)</option>
+                    <option value="family">家庭套餐 (4台设备, 适中限制)</option>
+                    <option value="pro">专业套餐 (6台设备, 宽松限制)</option>
+                    <option value="strict">严格模式 (1台设备, 极严限制)</option>
+                  </select>
+                  <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                    为此订阅组选择反共享策略模板，控制设备数、城市数、访问次数等限制
+                  </p>
+                </div>
+              </div>
             </div>
         </div>
 

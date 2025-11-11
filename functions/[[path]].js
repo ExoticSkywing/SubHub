@@ -1,6 +1,6 @@
 import yaml from 'js-yaml';
 import { StorageFactory, DataMigrator, STORAGE_TYPES } from './storage-adapter.js';
-import { getConfig, TEST_MODE } from './anti-share-config.js';
+import { getConfig, resolveAntiShareConfig } from './anti-share-config.js';
 
 /**
  * 修复Clash配置中的WireGuard问题
@@ -2985,13 +2985,33 @@ async function handleUserSubscription(userToken, profileId, profileToken, reques
             });
         }
         
-        // 6.5 🛡️ 反共享检测（设备数、城市、访问次数）
+        // 6.3 🔧 加载订阅组配置（用于反共享策略解析）
+        const storageAdapter = await getStorageAdapter(env);
+        const allProfiles = await storageAdapter.get(KV_KEY_PROFILES) || [];
+        const profile = allProfiles.find(p => 
+            (p.customId && p.customId === profileId) || p.id === profileId
+        );
+        
+        if (!profile || !profile.enabled) {
+            return new Response('订阅组不存在或已禁用', { status: 403 });
+        }
+        
+        // 6.4 🎯 解析该分组和用户的反共享配置（按优先级合并）
+        const effectiveAntiShareConfig = resolveAntiShareConfig(profile, userData, asyncConfig);
+        console.log(`[AntiShare] Resolved config for profile ${profileId}, user ${userToken}:`, {
+            policyKey: profile.policyKey || '(none)',
+            MAX_DEVICES: effectiveAntiShareConfig.MAX_DEVICES,
+            MAX_CITIES: effectiveAntiShareConfig.MAX_CITIES,
+            SUSPEND_DURATION_DAYS: effectiveAntiShareConfig.SUSPEND_DURATION_DAYS
+        });
+        
+        // 6.5 🛡️ 反共享检测（使用分组和用户的有效配置）
         const antiShareResult = await performAntiShareCheck(
             userToken,
             userData,
             request,
             env,
-            asyncConfig,
+            { ...asyncConfig, antiShare: effectiveAntiShareConfig },  // 使用合并后的配置
             config,  // settings参数：包含 BotToken、ChatID 等
             context
         );
@@ -3153,18 +3173,7 @@ async function handleUserSubscription(userToken, profileId, profileToken, reques
             }
         }
         
-        // 9. 加载订阅组配置
-        const storageAdapter = await getStorageAdapter(env);
-        const allProfiles = await storageAdapter.get(KV_KEY_PROFILES) || [];
-        const profile = allProfiles.find(p => 
-            (p.customId && p.customId === profileId) || p.id === profileId
-        );
-        
-        if (!profile || !profile.enabled) {
-            return new Response('订阅组不存在或已禁用', { status: 404 });
-        }
-        
-        // 8. 加载所有订阅和手动节点
+        // 8. 加载所有订阅和手动节点（profile已在反共享检测前加载）
         const allMisubs = await storageAdapter.get(KV_KEY_SUBS) || [];
         const profileSubIds = new Set(profile.subscriptions || []);
         const profileNodeIds = new Set(profile.manualNodes || []);

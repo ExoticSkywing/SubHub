@@ -34,6 +34,82 @@ export const ANTI_SHARE_CONFIG = {
 };
 
 // ============================================
+// 预设策略库（不同套餐的反共享模板）
+// ============================================
+export const ANTI_SHARE_PRESETS = {
+  // 基础套餐：严格限制
+  basic: {
+    MAX_DEVICES: 2,
+    MAX_CITIES: 2,
+    CITY_CHECK_START_INDEX: 1,
+    RATE_LIMIT_ENABLED: true,
+    RATE_LIMITS: {
+      1: 30,
+      2: 50
+    },
+    SUSPEND_ENABLED: true,
+    SUSPEND_REQUIRE_MAX_DEVICES: false,
+    SUSPEND_DURATION_DAYS: 3,
+    SUSPEND_RATE_LIMIT_ATTEMPTS_THRESHOLD: 5,
+    SUSPEND_FAILED_ATTEMPTS_THRESHOLD: 3
+  },
+  
+  // 家庭套餐：适中限制
+  family: {
+    MAX_DEVICES: 4,
+    MAX_CITIES: 3,
+    CITY_CHECK_START_INDEX: 1,
+    RATE_LIMIT_ENABLED: true,
+    RATE_LIMITS: {
+      1: 50,
+      2: 80,
+      3: 100,
+      4: 120
+    },
+    SUSPEND_ENABLED: true,
+    SUSPEND_REQUIRE_MAX_DEVICES: false,
+    SUSPEND_DURATION_DAYS: 7,
+    SUSPEND_RATE_LIMIT_ATTEMPTS_THRESHOLD: 10,
+    SUSPEND_FAILED_ATTEMPTS_THRESHOLD: 5
+  },
+  
+  // 专业套餐：宽松限制
+  pro: {
+    MAX_DEVICES: 4,
+    MAX_CITIES: 10,
+    CITY_CHECK_START_INDEX: 3,
+    RATE_LIMIT_ENABLED: true,
+    RATE_LIMITS: {
+      1: 5,
+      2: 10,
+      3: 15,
+      4: 20
+    },
+    SUSPEND_ENABLED: true,
+    SUSPEND_REQUIRE_MAX_DEVICES: false,
+    SUSPEND_DURATION_DAYS: 0.000694,
+    SUSPEND_RATE_LIMIT_ATTEMPTS_THRESHOLD: 20,
+    SUSPEND_FAILED_ATTEMPTS_THRESHOLD: 10
+  },
+  
+  // 严格模式：防滥用
+  strict: {
+    MAX_DEVICES: 1,
+    MAX_CITIES: 1,
+    CITY_CHECK_START_INDEX: 1,
+    RATE_LIMIT_ENABLED: true,
+    RATE_LIMITS: {
+      1: 20
+    },
+    SUSPEND_ENABLED: true,
+    SUSPEND_REQUIRE_MAX_DEVICES: false,
+    SUSPEND_DURATION_DAYS: 1,
+    SUSPEND_RATE_LIMIT_ATTEMPTS_THRESHOLD: 3,
+    SUSPEND_FAILED_ATTEMPTS_THRESHOLD: 2
+  }
+};
+
+// ============================================
 // 批量生成配置
 // ============================================
 export const BATCH_GENERATE_CONFIG = {
@@ -97,6 +173,64 @@ export const BOT_DETECTION_CONFIG = {
     'wget'                          // Wget（可选，根据需要开启）
   ]
 };
+
+// ============================================
+// 配置合并函数：解析分组和用户的反共享配置
+// ============================================
+/**
+ * 根据优先级合并反共享配置
+ * 优先级（从低到高）：全局默认 → 预设策略 → 分组覆盖 → 用户覆盖
+ * 
+ * @param {Object} profile - 订阅组对象（可能包含 policyKey 和 antiShareOverrides）
+ * @param {Object} userData - 用户数据对象（可能包含 antiShareOverrides）
+ * @param {Object} globalConfig - 全局配置对象（getConfig()的返回值）
+ * @returns {Object} 合并后的反共享配置
+ */
+export function resolveAntiShareConfig(profile, userData, globalConfig) {
+  // 1. 从全局默认开始
+  let config = { ...globalConfig.antiShare };
+  
+  // 2. 如果有预设策略，合并预设
+  if (profile && profile.policyKey && ANTI_SHARE_PRESETS[profile.policyKey]) {
+    const preset = ANTI_SHARE_PRESETS[profile.policyKey];
+    config = { ...config, ...preset };
+    
+    // RATE_LIMITS 深度合并
+    if (preset.RATE_LIMITS) {
+      config.RATE_LIMITS = { ...config.RATE_LIMITS, ...preset.RATE_LIMITS };
+    }
+  }
+  
+  // 3. 如果有分组覆盖，再合并覆盖
+  if (profile && profile.antiShareOverrides) {
+    const overrides = profile.antiShareOverrides;
+    config = { ...config, ...overrides };
+    
+    // RATE_LIMITS 深度合并
+    if (overrides.RATE_LIMITS) {
+      config.RATE_LIMITS = { ...config.RATE_LIMITS, ...overrides.RATE_LIMITS };
+    }
+  }
+  
+  // 4. 如果有用户覆盖，最后合并（最高优先级）
+  if (userData && userData.antiShareOverrides) {
+    const userOverrides = userData.antiShareOverrides;
+    config = { ...config, ...userOverrides };
+    
+    // RATE_LIMITS 深度合并
+    if (userOverrides.RATE_LIMITS) {
+      config.RATE_LIMITS = { ...config.RATE_LIMITS, ...userOverrides.RATE_LIMITS };
+    }
+  }
+  
+  // 5. 校验与保护（确保关键字段有效）
+  config.MAX_DEVICES = Math.max(1, config.MAX_DEVICES || 1);
+  config.MAX_CITIES = Math.max(1, config.MAX_CITIES || 1);
+  config.CITY_CHECK_START_INDEX = Math.max(0, config.CITY_CHECK_START_INDEX || 0);
+  config.SUSPEND_DURATION_DAYS = Math.max(0, config.SUSPEND_DURATION_DAYS || 0);
+  
+  return config;
+}
 
 // ============================================
 // 辅助函数：获取当前配置
