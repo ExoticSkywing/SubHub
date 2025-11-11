@@ -32,12 +32,13 @@ const toastConfig = computed(() => {
   return configs[toast.type] || configs.info;
 });
 
-watch(() => toast.id, () => {
-  if (toast.message) {
+watch(() => toast.id, (newId) => {
+  // 只控制显示/隐藏，不设置额外的计时器
+  // 计时器由 store 统一管理
+  if (newId && toast.message) {
     isVisible.value = true;
-    setTimeout(() => {
-      isVisible.value = false;
-    }, 4000); // 延长到4秒
+  } else {
+    isVisible.value = false;
   }
 });
 </script>
@@ -120,7 +121,7 @@ watch(() => toast.id, () => {
 
 /* 进度条动画 */
 .progress-bar {
-  animation: shrink 4s linear forwards;
+  animation: shrink 3s linear forwards;
 }
 
 @keyframes shrink {
