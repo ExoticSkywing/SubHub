@@ -302,8 +302,14 @@ export class DataMigrator {
                     CREATE TABLE IF NOT EXISTS users (
                         token TEXT PRIMARY KEY,
                         data TEXT NOT NULL,
-                        updated_at INTEGER DEFAULT (unixepoch())
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
                     );
+                `).run();
+                
+                // 创建索引
+                await d1Adapter.db.prepare(`
+                    CREATE INDEX IF NOT EXISTS idx_users_updated_at ON users(updated_at);
                 `).run();
             } catch (error) {
                 results.errors.push(`创建 users 表失败: ${error.message}`);

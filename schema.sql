@@ -22,6 +22,15 @@ CREATE TABLE IF NOT EXISTS settings (
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
+
+CREATE TABLE IF NOT EXISTS users (
+    token TEXT PRIMARY KEY,
+    data TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE INDEX IF NOT EXISTS idx_subscriptions_updated_at ON subscriptions(updated_at);
 CREATE INDEX IF NOT EXISTS idx_profiles_updated_at ON profiles(updated_at);
 CREATE INDEX IF NOT EXISTS idx_settings_updated_at ON settings(updated_at);
+CREATE INDEX IF NOT EXISTS idx_users_updated_at ON users(updated_at);
