@@ -1,5 +1,5 @@
 <script setup>
-import { onMounted } from 'vue';
+import { ref, onMounted } from 'vue';
 import { useThemeStore } from './stores/theme';
 import { useSessionStore } from './stores/session';
 import { useToastStore } from './stores/toast';
@@ -13,6 +13,7 @@ import Toast from './components/Toast.vue';
 import Footer from './components/Footer.vue';
 import PWAUpdatePrompt from './components/PWAUpdatePrompt.vue';
 import PWADevTools from './components/PWADevTools.vue';
+import UserManagement from './components/UserManagement.vue';
 
 const themeStore = useThemeStore();
 const { theme } = storeToRefs(themeStore);
@@ -25,6 +26,13 @@ const { checkSession, login, logout } = sessionStore;
 const toastStore = useToastStore();
 const { toast: toastState } = storeToRefs(toastStore);
 
+// 页面切换
+const currentPage = ref('dashboard'); // 'dashboard' or 'users'
+
+function switchPage(page) {
+  currentPage.value = page;
+}
+
 onMounted(() => {
   initTheme();
   checkSession();
@@ -36,7 +44,12 @@ onMounted(() => {
     :class="theme" 
     class="min-h-screen flex flex-col text-gray-800 dark:text-gray-200 transition-colors duration-300 bg-gray-100 dark:bg-gray-950"
   >
-    <Header :is-logged-in="sessionState === 'loggedIn'" @logout="logout" />
+    <Header 
+      :is-logged-in="sessionState === 'loggedIn'" 
+      :current-page="currentPage"
+      @logout="logout" 
+      @switch-page="switchPage"
+    />
 
     <main 
       class="grow"
@@ -47,7 +60,10 @@ onMounted(() => {
       }"
     >
       <DashboardSkeleton v-if="sessionState === 'loading'" />
-      <Dashboard v-else-if="sessionState === 'loggedIn' && initialData" :data="initialData" />
+      <template v-else-if="sessionState === 'loggedIn'">
+        <Dashboard v-if="currentPage === 'dashboard' && initialData" :data="initialData" />
+        <UserManagement v-else-if="currentPage === 'users'" />
+      </template>
       <Login v-else :login="login" />
     </main>
     

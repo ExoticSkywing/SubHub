@@ -792,6 +792,334 @@ async function handleApiRequest(request, env) {
         return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 });
     }
 
+    // ==================== 用户管理 API ====================
+    
+    // GET /api/users - 用户列表（支持过滤、搜索、分页）
+    if (path === '/users' && request.method === 'GET') {
+        try {
+            const url = new URL(request.url);
+            const profileId = url.searchParams.get('profileId');
+            const status = url.searchParams.get('status');
+            const search = url.searchParams.get('search');
+            const page = parseInt(url.searchParams.get('page')) || 0;
+            const pageSize = parseInt(url.searchParams.get('pageSize')) || 20;
+            
+            // 构建查询条件
+            let query = 'SELECT token, data, created_at, updated_at FROM users';
+            const conditions = [];
+            const params = [];
+            
+            if (profileId) {
+                conditions.push("json_extract(data, '$.profileId') = ?");
+                params.push(profileId);
+            }
+            if (status) {
+                conditions.push("json_extract(data, '$.status') = ?");
+                params.push(status);
+            }
+            if (search) {
+                conditions.push("(token LIKE ? OR json_extract(data, '$.userToken') LIKE ?)");
+                params.push(`%${search}%`, `%${search}%`);
+            }
+            
+            if (conditions.length > 0) {
+                query += ' WHERE ' + conditions.join(' AND ');
+            }
+            
+            query += ' ORDER BY created_at DESC LIMIT ? OFFSET ?';
+            params.push(pageSize, page * pageSize);
+            
+            // 查询用户
+            const result = await env.MISUB_DB.prepare(query).bind(...params).all();
+            
+            // 加载 profiles（用于显示订阅组名称）
+            const storageAdapter = await getStorageAdapter(env);
+            const profiles = await storageAdapter.get(KV_KEY_PROFILES) || [];
+            const profileMap = new Map(profiles.map(p => [p.id, p]));
+            
+            // 组装数据
+            const users = result.results.map(row => {
+                const userData = JSON.parse(row.data);
+                const profile = profileMap.get(userData.profileId);
+                
+                return {
+                    token: row.token,
+                    profileId: userData.profileId,
+                    profileName: profile?.name || 'Unknown',
+                    customId: profile?.customId || '',
+                    status: userData.status,
+                    deviceCount: Object.keys(userData.devices || {}).length,
+                    cityCount: Object.keys(userData.cities || {}).length,
+                    activatedAt: userData.activatedAt,
+                    expiresAt: userData.expiresAt,
+                    createdAt: row.created_at,
+                    updatedAt: row.updated_at,
+                    isSuspended: userData.suspend?.status === 'suspended',
+                    suspendReason: userData.suspend?.reason || null
+                };
+            });
+            
+            // 获取总数（用于分页）
+            let countQuery = 'SELECT COUNT(*) as total FROM users';
+            if (conditions.length > 0) {
+                countQuery += ' WHERE ' + conditions.join(' AND ');
+            }
+            const countResult = await env.MISUB_DB.prepare(countQuery)
+                .bind(...params.slice(0, -2))
+                .first();
+            
+            return new Response(JSON.stringify({
+                success: true,
+                data: users,
+                pagination: {
+                    page,
+                    pageSize,
+                    total: countResult.total,
+                    totalPages: Math.ceil(countResult.total / pageSize)
+                }
+            }), {
+                headers: { 'Content-Type': 'application/json' }
+            });
+            
+        } catch (error) {
+            console.error('[API Error /users GET]', error);
+            return new Response(JSON.stringify({
+                success: false,
+                error: error.message
+            }), { status: 500 });
+        }
+    }
+    
+    // GET /api/users/:token - 用户详情
+    if (path.startsWith('/users/') && request.method === 'GET') {
+        try {
+            const token = path.split('/')[2];
+            if (!token) {
+                return new Response(JSON.stringify({
+                    success: false,
+                    error: 'Token is required'
+                }), { status: 400 });
+            }
+            
+            const storageAdapter = await getStorageAdapter(env);
+            const userDataRaw = await storageAdapter.get(`user:${token}`);
+            
+            if (!userDataRaw) {
+                return new Response(JSON.stringify({
+                    success: false,
+                    error: '用户不存在'
+                }), { status: 404 });
+            }
+            
+            const userData = typeof userDataRaw === 'string' ? JSON.parse(userDataRaw) : userDataRaw;
+            
+            // 加载 profile 信息
+            const profiles = await storageAdapter.get(KV_KEY_PROFILES) || [];
+            const profile = profiles.find(p => p.id === userData.profileId);
+            
+            // 组装完整的用户信息
+            const userDetail = {
+                token: userData.userToken,
+                profileId: userData.profileId,
+                profileName: profile?.name || 'Unknown',
+                customId: profile?.customId || '',
+                status: userData.status,
+                activatedAt: userData.activatedAt,
+                expiresAt: userData.expiresAt,
+                
+                // 设备信息
+                devices: Object.entries(userData.devices || {}).map(([id, device]) => ({
+                    id,
+                    name: device.name || 'Unknown',
+                    lastSeen: device.lastSeen,
+                    activatedAt: device.activatedAt
+                })),
+                
+                // 城市信息
+                cities: Object.entries(userData.cities || {}).map(([id, city]) => ({
+                    id,
+                    name: city.name || 'Unknown',
+                    lastSeen: city.lastSeen,
+                    activatedAt: city.activatedAt
+                })),
+                
+                // 统计信息
+                stats: {
+                    totalRequests: userData.stats?.totalRequests || 0,
+                    lastRequest: userData.stats?.lastRequest,
+                    failedAttempts: userData.stats?.failedAttempts || 0,
+                    lastFailedAttempt: userData.stats?.lastFailedAttempt
+                },
+                
+                // 封禁信息
+                suspend: userData.suspend || null,
+                
+                // 限流信息
+                rateLimit: userData.rateLimit || null,
+                
+                // 时间戳
+                createdAt: userData.createdAt
+            };
+            
+            return new Response(JSON.stringify({
+                success: true,
+                data: userDetail
+            }), {
+                headers: { 'Content-Type': 'application/json' }
+            });
+            
+        } catch (error) {
+            console.error('[API Error /users/:token GET]', error);
+            return new Response(JSON.stringify({
+                success: false,
+                error: error.message
+            }), { status: 500 });
+        }
+    }
+    
+    // POST /api/users/:token/unsuspend - 解封用户
+    if (path.match(/^\/users\/[^\/]+\/unsuspend$/) && request.method === 'POST') {
+        try {
+            const token = path.split('/')[2];
+            if (!token) {
+                return new Response(JSON.stringify({
+                    success: false,
+                    error: 'Token is required'
+                }), { status: 400 });
+            }
+            
+            const storageAdapter = await getStorageAdapter(env);
+            const userDataRaw = await storageAdapter.get(`user:${token}`);
+            
+            if (!userDataRaw) {
+                return new Response(JSON.stringify({
+                    success: false,
+                    error: '用户不存在'
+                }), { status: 404 });
+            }
+            
+            const userData = typeof userDataRaw === 'string' ? JSON.parse(userDataRaw) : userDataRaw;
+            
+            // 解除封禁
+            userData.suspend = null;
+            userData.stats = userData.stats || {};
+            userData.stats.failedAttempts = 0;
+            
+            // 保存更新
+            await storageAdapter.put(`user:${token}`, userData);
+            
+            return new Response(JSON.stringify({
+                success: true,
+                message: '用户已解封'
+            }), {
+                headers: { 'Content-Type': 'application/json' }
+            });
+            
+        } catch (error) {
+            console.error('[API Error /users/:token/unsuspend POST]', error);
+            return new Response(JSON.stringify({
+                success: false,
+                error: error.message
+            }), { status: 500 });
+        }
+    }
+    
+    // PATCH /api/users/:token - 修改用户信息
+    if (path.match(/^\/users\/[^\/]+$/) && request.method === 'PATCH') {
+        try {
+            const token = path.split('/')[2];
+            if (!token) {
+                return new Response(JSON.stringify({
+                    success: false,
+                    error: 'Token is required'
+                }), { status: 400 });
+            }
+            
+            const updates = await request.json();
+            const storageAdapter = await getStorageAdapter(env);
+            const userDataRaw = await storageAdapter.get(`user:${token}`);
+            
+            if (!userDataRaw) {
+                return new Response(JSON.stringify({
+                    success: false,
+                    error: '用户不存在'
+                }), { status: 404 });
+            }
+            
+            const userData = typeof userDataRaw === 'string' ? JSON.parse(userDataRaw) : userDataRaw;
+            
+            // 更新允许修改的字段
+            if (updates.expiresAt !== undefined) {
+                userData.expiresAt = updates.expiresAt;
+            }
+            if (updates.profileId !== undefined) {
+                userData.profileId = updates.profileId;
+            }
+            if (updates.status !== undefined) {
+                userData.status = updates.status;
+            }
+            
+            // 保存更新
+            await storageAdapter.put(`user:${token}`, userData);
+            
+            return new Response(JSON.stringify({
+                success: true,
+                message: '用户信息已更新'
+            }), {
+                headers: { 'Content-Type': 'application/json' }
+            });
+            
+        } catch (error) {
+            console.error('[API Error /users/:token PATCH]', error);
+            return new Response(JSON.stringify({
+                success: false,
+                error: error.message
+            }), { status: 500 });
+        }
+    }
+    
+    // DELETE /api/users/:token - 删除用户
+    if (path.match(/^\/users\/[^\/]+$/) && request.method === 'DELETE') {
+        try {
+            const token = path.split('/')[2];
+            if (!token) {
+                return new Response(JSON.stringify({
+                    success: false,
+                    error: 'Token is required'
+                }), { status: 400 });
+            }
+            
+            const storageAdapter = await getStorageAdapter(env);
+            const userDataRaw = await storageAdapter.get(`user:${token}`);
+            
+            if (!userDataRaw) {
+                return new Response(JSON.stringify({
+                    success: false,
+                    error: '用户不存在'
+                }), { status: 404 });
+            }
+            
+            // 删除用户
+            await storageAdapter.delete(`user:${token}`);
+            
+            return new Response(JSON.stringify({
+                success: true,
+                message: '用户已删除'
+            }), {
+                headers: { 'Content-Type': 'application/json' }
+            });
+            
+        } catch (error) {
+            console.error('[API Error /users/:token DELETE]', error);
+            return new Response(JSON.stringify({
+                success: false,
+                error: error.message
+            }), { status: 500 });
+        }
+    }
+    
+    // ==================== 原有 API ====================
+
     switch (path) {
         case '/logout': {
             const headers = new Headers({ 'Content-Type': 'application/json' });

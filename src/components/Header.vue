@@ -1,4 +1,5 @@
 <script setup>
+import { ref } from 'vue';
 import { useThemeStore } from '../stores/theme.js';
 import { useUIStore } from '../stores/ui.js';
 import ThemeToggle from './ThemeToggle.vue';
@@ -7,12 +8,17 @@ import PWAInstallPrompt from './PWAInstallPrompt.vue';
 const { theme, toggleTheme } = useThemeStore();
 const uiStore = useUIStore();
 
-// 【核心修正】接收一个 isLoggedIn 属性
 const props = defineProps({
-  isLoggedIn: Boolean
+  isLoggedIn: Boolean,
+  currentPage: {
+    type: String,
+    default: 'dashboard'
+  }
 });
 
-const emit = defineEmits(['logout']);
+const emit = defineEmits(['logout', 'switchPage']);
+
+const showMobileMenu = ref(false);
 </script>
 
 <template>
@@ -24,16 +30,77 @@ const emit = defineEmits(['logout']);
       <!-- 添加iOS适配层 -->
       <div class="pt-safe-top">
         <div class="flex justify-between items-center h-16 md:h-20">
-        <div class="flex items-center">
-          <svg width="32" height="32" viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg" class="text-indigo-600 dark:text-indigo-400">
-            <path fill="currentColor" d="M64 128a64 64 0 1 1 64-64a64.07 64.07 0 0 1-64 64Zm0-122a58 58 0 1 0 58 58A58.07 58.07 0 0 0 64 6Z"/>
-            <path fill="currentColor" d="M64 100a36 36 0 1 1 36-36a36 36 0 0 1-36 36Zm0-66a30 30 0 1 0 30 30a30 30 0 0 0-30-30Z"/>
-            <path fill="currentColor" d="M64 78a14 14 0 1 1 14-14a14 14 0 0 1-14 14Zm0-22a8 8 0 1 0 8 8a8 8 0 0 0-8-8Z"/>
-          </svg>
-          <span class="ml-3 text-xl font-bold text-gray-800 dark:text-white">SUBHUB</span>
+        <div class="flex items-center gap-6">
+          <!-- Logo -->
+          <div class="flex items-center">
+            <svg width="32" height="32" viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg" class="text-indigo-600 dark:text-indigo-400">
+              <path fill="currentColor" d="M64 128a64 64 0 1 1 64-64a64.07 64.07 0 0 1-64 64Zm0-122a58 58 0 1 0 58 58A58.07 58.07 0 0 0 64 6Z"/>
+              <path fill="currentColor" d="M64 100a36 36 0 1 1 36-36a36 36 0 0 1-36 36Zm0-66a30 30 0 1 0 30 30a30 30 0 0 0-30-30Z"/>
+              <path fill="currentColor" d="M64 78a14 14 0 1 1 14-14a14 14 0 0 1-14 14Zm0-22a8 8 0 1 0 8 8a8 8 0 0 0-8-8Z"/>
+            </svg>
+            <span class="ml-3 text-xl font-bold text-gray-800 dark:text-white">SUBHUB</span>
+          </div>
+
+          <!-- 导航菜单 -->
+          <nav v-if="isLoggedIn" class="hidden md:flex items-center gap-1">
+            <button
+              @click="emit('switchPage', 'dashboard')"
+              :class="[
+                'px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200',
+                currentPage === 'dashboard'
+                  ? 'bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300'
+                  : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-white'
+              ]"
+            >
+              仪表盘
+            </button>
+            <button
+              @click="emit('switchPage', 'users')"
+              :class="[
+                'px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200',
+                currentPage === 'users'
+                  ? 'bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300'
+                  : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-white'
+              ]"
+            >
+              用户管理
+            </button>
+          </nav>
         </div>
         
         <div v-if="isLoggedIn" class="flex items-center space-x-2 sm:space-x-3">
+          <!-- 移动端导航菜单 -->
+          <div class="md:hidden relative">
+            <button @click="showMobileMenu = !showMobileMenu" class="text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-white p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800">
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
+              </svg>
+            </button>
+            <div v-if="showMobileMenu" class="absolute right-0 mt-2 w-48 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 py-2">
+              <button
+                @click="emit('switchPage', 'dashboard'); showMobileMenu = false"
+                :class="[
+                  'w-full text-left px-4 py-2 text-sm transition-colors',
+                  currentPage === 'dashboard'
+                    ? 'bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-300'
+                    : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
+                ]"
+              >
+                仪表盘
+              </button>
+              <button
+                @click="emit('switchPage', 'users'); showMobileMenu = false"
+                :class="[
+                  'w-full text-left px-4 py-2 text-sm transition-colors',
+                  currentPage === 'users'
+                    ? 'bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-300'
+                    : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
+                ]"
+              >
+                用户管理
+              </button>
+            </div>
+          </div>
           <!-- PWA安装按钮 -->
           <div class="flex-shrink-0">
             <PWAInstallPrompt />

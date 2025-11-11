@@ -202,3 +202,141 @@ export async function testSubscription(url, userAgent) {
         return { success: false, message: '网络请求失败，请检查网络连接' };
     }
 }
+
+// ==================== 用户管理 API ====================
+
+/**
+ * 获取用户列表
+ * @param {Object} filters - 过滤条件
+ * @param {string} filters.profileId - 订阅组ID
+ * @param {string} filters.status - 用户状态
+ * @param {string} filters.search - 搜索关键词
+ * @param {number} filters.page - 页码
+ * @param {number} filters.pageSize - 每页数量
+ * @returns {Promise<Object>} - 用户列表和分页信息
+ */
+export async function fetchUsers(filters = {}) {
+    try {
+        const params = new URLSearchParams({
+            page: filters.page || 0,
+            pageSize: filters.pageSize || 20,
+            ...(filters.profileId && { profileId: filters.profileId }),
+            ...(filters.status && { status: filters.status }),
+            ...(filters.search && { search: filters.search })
+        });
+
+        const response = await fetch(`/api/users?${params}`);
+        
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({}));
+            const errorMessage = errorData.error || `服务器错误 (${response.status})`;
+            return { success: false, error: errorMessage };
+        }
+
+        return await response.json();
+    } catch (error) {
+        console.error("Failed to fetch users:", error);
+        return { success: false, error: '网络请求失败，请检查网络连接' };
+    }
+}
+
+/**
+ * 获取用户详情
+ * @param {string} token - 用户 Token
+ * @returns {Promise<Object>} - 用户详细信息
+ */
+export async function fetchUserDetail(token) {
+    try {
+        const response = await fetch(`/api/users/${token}`);
+        
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({}));
+            const errorMessage = errorData.error || `服务器错误 (${response.status})`;
+            return { success: false, error: errorMessage };
+        }
+
+        return await response.json();
+    } catch (error) {
+        console.error("Failed to fetch user detail:", error);
+        return { success: false, error: '网络请求失败，请检查网络连接' };
+    }
+}
+
+/**
+ * 解封用户
+ * @param {string} token - 用户 Token
+ * @returns {Promise<Object>} - 操作结果
+ */
+export async function unsuspendUser(token) {
+    try {
+        const response = await fetch(`/api/users/${token}/unsuspend`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        });
+        
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({}));
+            const errorMessage = errorData.error || errorData.message || `服务器错误 (${response.status})`;
+            return { success: false, message: errorMessage };
+        }
+
+        return await response.json();
+    } catch (error) {
+        console.error("Failed to unsuspend user:", error);
+        return { success: false, message: '网络请求失败，请检查网络连接' };
+    }
+}
+
+/**
+ * 更新用户信息
+ * @param {string} token - 用户 Token
+ * @param {Object} updates - 要更新的字段
+ * @param {string} updates.expiresAt - 到期时间
+ * @param {string} updates.profileId - 订阅组ID
+ * @param {string} updates.status - 状态
+ * @returns {Promise<Object>} - 操作结果
+ */
+export async function updateUser(token, updates) {
+    try {
+        const response = await fetch(`/api/users/${token}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(updates)
+        });
+        
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({}));
+            const errorMessage = errorData.error || errorData.message || `服务器错误 (${response.status})`;
+            return { success: false, message: errorMessage };
+        }
+
+        return await response.json();
+    } catch (error) {
+        console.error("Failed to update user:", error);
+        return { success: false, message: '网络请求失败，请检查网络连接' };
+    }
+}
+
+/**
+ * 删除用户
+ * @param {string} token - 用户 Token
+ * @returns {Promise<Object>} - 操作结果
+ */
+export async function deleteUser(token) {
+    try {
+        const response = await fetch(`/api/users/${token}`, {
+            method: 'DELETE'
+        });
+        
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({}));
+            const errorMessage = errorData.error || errorData.message || `服务器错误 (${response.status})`;
+            return { success: false, message: errorMessage };
+        }
+
+        return await response.json();
+    } catch (error) {
+        console.error("Failed to delete user:", error);
+        return { success: false, message: '网络请求失败，请检查网络连接' };
+    }
+}
