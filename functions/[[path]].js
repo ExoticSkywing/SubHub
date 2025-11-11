@@ -835,7 +835,14 @@ async function handleApiRequest(request, env) {
             // 加载 profiles（用于显示订阅组名称）
             const storageAdapter = await getStorageAdapter(env);
             const profiles = await storageAdapter.get(KV_KEY_PROFILES) || [];
-            const profileMap = new Map(profiles.map(p => [p.id, p]));
+            // 同时使用 id 和 customId 建立映射，以兼容旧数据
+            const profileMap = new Map();
+            profiles.forEach(p => {
+                profileMap.set(p.id, p);
+                if (p.customId) {
+                    profileMap.set(p.customId, p);
+                }
+            });
             
             // 组装数据
             const users = result.results.map(row => {
@@ -915,7 +922,7 @@ async function handleApiRequest(request, env) {
             
             // 加载 profile 信息
             const profiles = await storageAdapter.get(KV_KEY_PROFILES) || [];
-            const profile = profiles.find(p => p.id === userData.profileId);
+            const profile = profiles.find(p => p.id === userData.profileId || p.customId === userData.profileId);
             
             // 组装完整的用户信息
             const userDetail = {
@@ -1612,7 +1619,7 @@ async function handleApiRequest(request, env) {
                         // 创建用户数据
                         const userData = {
                             userToken,
-                            profileId,
+                            profileId: profile.id,  // 使用真正的 profile.id，而不是传入的 profileId（可能是 customId）
                             status: 'pending',
                             createdAt,
                             activatedAt: null,
