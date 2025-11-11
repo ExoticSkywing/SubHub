@@ -812,20 +812,43 @@ async function handleApiRequest(request, env) {
     if (path === '/users' && request.method === 'GET') {
         try {
             const url = new URL(request.url);
-            const profileId = url.searchParams.get('profileId');
+            const profileIdParam = url.searchParams.get('profileId');
             const status = url.searchParams.get('status');
             const search = url.searchParams.get('search');
             const page = parseInt(url.searchParams.get('page')) || 0;
             const pageSize = parseInt(url.searchParams.get('pageSize')) || 20;
+            
+            // 【修复】先加载 profiles（后面也需要用）
+            const storageAdapter = await getStorageAdapter(env);
+            const profiles = await storageAdapter.get(KV_KEY_PROFILES) || [];
+            
+            // 如果传入了 profileId，先找到对应的 profile，获取 id 和 customId
+            let profileIdToMatch = null;
+            let profileCustomIdToMatch = null;
+            if (profileIdParam) {
+                const targetProfile = profiles.find(p => 
+                    p.id === profileIdParam || (p.customId && p.customId === profileIdParam)
+                );
+                if (targetProfile) {
+                    profileIdToMatch = targetProfile.id;
+                    profileCustomIdToMatch = targetProfile.customId;
+                }
+            }
             
             // 构建查询条件
             let query = 'SELECT token, data, created_at, updated_at FROM users';
             const conditions = [];
             const params = [];
             
-            if (profileId) {
-                conditions.push("json_extract(data, '$.profileId') = ?");
-                params.push(profileId);
+            if (profileIdToMatch) {
+                // 同时匹配 id 和 customId（兼容旧数据）
+                if (profileCustomIdToMatch) {
+                    conditions.push("(json_extract(data, '$.profileId') = ? OR json_extract(data, '$.profileId') = ?)");
+                    params.push(profileIdToMatch, profileCustomIdToMatch);
+                } else {
+                    conditions.push("json_extract(data, '$.profileId') = ?");
+                    params.push(profileIdToMatch);
+                }
             }
             // 状态筛选：pending 和 activated 可以直接 SQL 查询
             // expired 和 suspended 需要在内存中过滤
@@ -857,9 +880,7 @@ async function handleApiRequest(request, env) {
             // 查询用户
             const result = await env.MISUB_DB.prepare(query).bind(...params).all();
             
-            // 加载 profiles（用于显示订阅组名称）
-            const storageAdapter = await getStorageAdapter(env);
-            const profiles = await storageAdapter.get(KV_KEY_PROFILES) || [];
+            // profiles 已在前面加载，这里直接使用
             // 同时使用 id 和 customId 建立映射，以兼容旧数据
             const profileMap = new Map();
             profiles.forEach(p => {
