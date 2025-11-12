@@ -2654,7 +2654,7 @@ async function performAntiShareCheck(userToken, userData, request, env, config, 
         // 如果当前策略的封禁时长更短，允许提前解封
         if (userData.suspend.at && userData.suspend.until) {
             const originalDuration = userData.suspend.until - userData.suspend.at;
-            const currentDuration = (config.antiShare.SUSPEND_DURATION_DAYS || 0) * 86400000;
+            const currentDuration = (config.antiShare.SUSPEND_DURATION_DAYS) * 86400000;  // 使用有效配置
             
             // 如果新策略的封禁时长更短，重新计算 until
             if (currentDuration < originalDuration) {
@@ -2678,8 +2678,8 @@ async function performAntiShareCheck(userToken, userData, request, env, config, 
             console.log(`[AntiShare] Account ${userToken} auto-unfrozen after suspension`);
             
             // 部分重置计数器（中间方案）：降低到阈值的60%，既保留"案底"又给缓冲空间
-            const failedThreshold = config.antiShare.SUSPEND_FAILED_ATTEMPTS_THRESHOLD || 5;
-            const rateLimitThreshold = config.antiShare.SUSPEND_RATE_LIMIT_ATTEMPTS_THRESHOLD || 10;
+            const failedThreshold = config.antiShare.SUSPEND_FAILED_ATTEMPTS_THRESHOLD;
+            const rateLimitThreshold = config.antiShare.SUSPEND_RATE_LIMIT_ATTEMPTS_THRESHOLD;
             const oldFailedAttempts = userData.stats.failedAttempts || 0;
             const oldRateLimitAttempts = userData.stats.rateLimitAttempts || 0;
             
@@ -2728,7 +2728,7 @@ async function performAntiShareCheck(userToken, userData, request, env, config, 
         
         // 🔍 立即检查是否需要触发封禁
         if (config.antiShare.SUSPEND_ENABLED) {
-            const failedAttemptsThreshold = config.antiShare.SUSPEND_FAILED_ATTEMPTS_THRESHOLD || 5;
+            const failedAttemptsThreshold = config.antiShare.SUSPEND_FAILED_ATTEMPTS_THRESHOLD;
             
             if (userData.stats.failedAttempts >= failedAttemptsThreshold) {
                 // 触发临时封禁
@@ -2797,7 +2797,7 @@ async function performAntiShareCheck(userToken, userData, request, env, config, 
 *新设备UA:* \`${userAgent}\`
 *城市:* \`${city}\`
 *IP:* \`${clientIp}\`
-*失败尝试:* \`${userData.stats.failedAttempts}\` 次（阈值: ${config.antiShare.SUSPEND_FAILED_ATTEMPTS_THRESHOLD || 5}次）`;
+*失败尝试:* \`${userData.stats.failedAttempts}\` 次（阈值: ${config.antiShare.SUSPEND_FAILED_ATTEMPTS_THRESHOLD}次）`;
             context.waitUntil(sendEnhancedTgNotification(settings, '🚫 *设备数超限*', request, additionalData, city));
         }
         
@@ -2853,7 +2853,7 @@ async function performAntiShareCheck(userToken, userData, request, env, config, 
             
             // 🔍 立即检查是否需要触发封禁
             if (config.antiShare.SUSPEND_ENABLED) {
-                const failedAttemptsThreshold = config.antiShare.SUSPEND_FAILED_ATTEMPTS_THRESHOLD || 5;
+                const failedAttemptsThreshold = config.antiShare.SUSPEND_FAILED_ATTEMPTS_THRESHOLD;
                 
                 if (userData.stats.failedAttempts >= failedAttemptsThreshold) {
                     // 触发临时封禁
@@ -2977,7 +2977,7 @@ async function performAntiShareCheck(userToken, userData, request, env, config, 
         } else {
             // 城市不在账户中，检查是否达到城市上限
             const currentCityCount = allCityKeysSet.size;
-            const maxCities = config.antiShare.MAX_CITIES || 5;
+            const maxCities = config.antiShare.MAX_CITIES;  // 使用已合并的有效配置
             
             if (currentCityCount >= maxCities) {
                 // 已达到城市上限，拒绝新城市
@@ -2998,7 +2998,7 @@ async function performAntiShareCheck(userToken, userData, request, env, config, 
                 
                 // 🔍 立即检查是否需要触发封禁
                 if (config.antiShare.SUSPEND_ENABLED) {
-                    const failedAttemptsThreshold = config.antiShare.SUSPEND_FAILED_ATTEMPTS_THRESHOLD || 5;
+                    const failedAttemptsThreshold = config.antiShare.SUSPEND_FAILED_ATTEMPTS_THRESHOLD;
                     
                     if (userData.stats.failedAttempts >= failedAttemptsThreshold) {
                         // 触发临时封禁
@@ -3114,8 +3114,8 @@ async function performAntiShareCheck(userToken, userData, request, env, config, 
         const rateLimitAttempts = userData.stats.rateLimitAttempts || 0;  // 达到上限后的失败次数
         
         // 失败次数阈值（从配置读取）
-        const rateLimitAttemptsThreshold = config.antiShare.SUSPEND_RATE_LIMIT_ATTEMPTS_THRESHOLD || 10;
-        const failedAttemptsThreshold = config.antiShare.SUSPEND_FAILED_ATTEMPTS_THRESHOLD || 5;
+        const rateLimitAttemptsThreshold = config.antiShare.SUSPEND_RATE_LIMIT_ATTEMPTS_THRESHOLD;
+        const failedAttemptsThreshold = config.antiShare.SUSPEND_FAILED_ATTEMPTS_THRESHOLD;
         
         // 条件1：达到上限后，失败次数过多（账号共享的关键证据）
         // rateLimitAttempts 只有在 dailyCount >= rateLimit 时才会增加，所以不需要额外判断
