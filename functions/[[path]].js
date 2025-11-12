@@ -2815,77 +2815,80 @@ async function performAntiShareCheck(userToken, userData, request, env, config, 
     
     // 5. 【城市检测前置】先检查城市，避免提前初始化设备
     // 判断是否需要城市检测（基于当前设备数，不包含新设备）
+    // CITY_CHECK_START_INDEX 表示前N台畅通无阻，从第N+1台开始检测
     const potentialDeviceCount = isNewDevice ? deviceCount + 1 : deviceCount;
     const shouldCheckCity = potentialDeviceCount > config.antiShare.CITY_CHECK_START_INDEX;
     
-    if (shouldCheckCity && isNewDevice) {
-        // 获取整个账户下所有设备的所有城市key（小写，去重）
-        const allCityKeysSet = new Set();
-        const allCitiesForDisplay = [];
-        Object.values(userData.devices).forEach(dev => {
-            Object.values(dev.cities).forEach(cityInfo => {
-                const key = cityInfo.city.toLowerCase();
-                if (!allCityKeysSet.has(key)) {
-                    allCityKeysSet.add(key);
-                    allCitiesForDisplay.push(cityInfo.city);
-                }
-            });
+    // 【城市上限检测】始终执行，对所有设备都有效
+    // 获取整个账户下所有设备的所有城市key（小写，去重）
+    const allCityKeysSet = new Set();
+    const allCitiesForDisplay = [];
+    Object.values(userData.devices).forEach(dev => {
+        Object.values(dev.cities).forEach(cityInfo => {
+            const key = cityInfo.city.toLowerCase();
+            if (!allCityKeysSet.has(key)) {
+                allCityKeysSet.add(key);
+                allCitiesForDisplay.push(cityInfo.city);
+            }
         });
-        
-        // 新设备 + 新城市检测
-        if (allCityKeysSet.size > 0 && !allCityKeysSet.has(cityKey)) {
-            // 新设备但账户已有其他城市记录 → 可疑的多设备共享
-            if (config.telegram.NOTIFY_ON_CITY_MISMATCH) {
-                const additionalData = `*Token:* \`${userToken}\`
+    });
+    
+    const maxCities = config.antiShare.MAX_CITIES;
+    const cityExists = allCityKeysSet.has(cityKey);
+    
+    // 【硬性限制】城市总数不能超过 MAX_CITIES（对所有设备都适用）
+    if (!cityExists && allCityKeysSet.size >= maxCities) {
+        // 已达城市上限，拒绝新城市
+        if (config.telegram.NOTIFY_ON_CITY_MISMATCH) {
+            const additionalData = `*Token:* \`${userToken}\`
 *设备ID:* \`${deviceId}\`
 *设备UA:* \`${userAgent}\`
-*账户已有城市:* \`${allCitiesForDisplay.join(', ')}\`
+*账户已有城市:* \`${allCitiesForDisplay.join(', ')}\` (${allCityKeysSet.size}/${maxCities})
 *当前城市:* \`${city}\`
-*已有设备数:* \`${deviceCount}\`
-*尝试添加:* 第${deviceCount + 1}台设备
+*设备数:* \`${deviceCount}\`
 *IP:* \`${clientIp}\`
-*原因:* 新设备+新城市（可疑共享）`;
-                context.waitUntil(sendEnhancedTgNotification(settings, '🚫 *新设备新城市*', request, additionalData, city));
-            }
+*原因:* 账户已达城市上限（${maxCities}个城市），无法添加新城市`;
+            context.waitUntil(sendEnhancedTgNotification(settings, '🌍 *城市上限*', request, additionalData, city));
+        }
+        
+        // 记录失败尝试次数
+        userData.stats.failedAttempts = (userData.stats.failedAttempts || 0) + 1;
+        
+        // 🔍 立即检查是否需要触发封禁
+        if (config.antiShare.SUSPEND_ENABLED) {
+            const failedAttemptsThreshold = config.antiShare.SUSPEND_FAILED_ATTEMPTS_THRESHOLD;
             
-            // 记录失败尝试次数
-            userData.stats.failedAttempts = (userData.stats.failedAttempts || 0) + 1;
-            
-            // 🔍 立即检查是否需要触发封禁
-            if (config.antiShare.SUSPEND_ENABLED) {
-                const failedAttemptsThreshold = config.antiShare.SUSPEND_FAILED_ATTEMPTS_THRESHOLD;
+            if (userData.stats.failedAttempts >= failedAttemptsThreshold) {
+                // 触发临时封禁
+                const suspendDurationMs = config.antiShare.SUSPEND_DURATION_DAYS * 24 * 60 * 60 * 1000;
+                const suspendUntil = Date.now() + suspendDurationMs;
+                const suspendReason = `可疑的高频失败尝试（${userData.stats.failedAttempts}次失败尝试，疑似账号共享或滥用）`;
                 
-                if (userData.stats.failedAttempts >= failedAttemptsThreshold) {
-                    // 触发临时封禁
-                    const suspendDurationMs = config.antiShare.SUSPEND_DURATION_DAYS * 24 * 60 * 60 * 1000;
-                    const suspendUntil = Date.now() + suspendDurationMs;
-                    const suspendReason = `可疑的高频失败尝试（${userData.stats.failedAttempts}次失败尝试，疑似账号共享或滥用）`;
-                    
-                    userData.suspend = {
-                        at: Date.now(),
-                        until: suspendUntil,
-                        reason: suspendReason,
-                        deviceCount: deviceCount,
-                        failedAttempts: userData.stats.failedAttempts
-                    };
-                    
-                    // 发送Telegram封禁通知
-                    const unfreezeDate = new Date(suspendUntil).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
-                    
-                    // 格式化封禁时长
-                    let durationText = '';
-                    const days = config.antiShare.SUSPEND_DURATION_DAYS;
-                    if (days >= 1) {
-                        durationText = `${days}天`;
-                    } else if (days >= 1/24) {
-                        const hours = Math.round(days * 24);
-                        durationText = `${hours}小时`;
-                    } else {
-                        const minutes = Math.round(days * 24 * 60);
-                        durationText = `${minutes}分钟`;
-                    }
-                    
-                    const additionalData = `*Token:* \`${userToken}\`
+                userData.suspend = {
+                    at: Date.now(),
+                    until: suspendUntil,
+                    reason: suspendReason,
+                    deviceCount: deviceCount,
+                    failedAttempts: userData.stats.failedAttempts
+                };
+                
+                // 发送Telegram封禁通知
+                const unfreezeDate = new Date(suspendUntil).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
+                
+                // 格式化封禁时长
+                let durationText = '';
+                const days = config.antiShare.SUSPEND_DURATION_DAYS;
+                if (days >= 1) {
+                    durationText = `${days}天`;
+                } else if (days >= 1/24) {
+                    const hours = Math.round(days * 24);
+                    durationText = `${hours}小时`;
+                } else {
+                    const minutes = Math.round(days * 24 * 60);
+                    durationText = `${minutes}分钟`;
+                }
+                
+                const additionalData = `*Token:* \`${userToken}\`
 *设备ID:* \`${deviceId}\`
 *城市:* \`${city}\`
 *IP:* \`${clientIp}\`
@@ -2895,102 +2898,55 @@ async function performAntiShareCheck(userToken, userData, request, env, config, 
 *触发原因:*
 - 失败尝试: \`${userData.stats.failedAttempts}\` 次（阈值: ${failedAttemptsThreshold}次）
 - 已有设备数: \`${deviceCount}\`
-- ⚠️ 疑似账号共享或滥用（如新设备新城市）`;
-                    
-                    context.waitUntil(sendEnhancedTgNotification(settings, '🚫 *账号已临时封禁*', request, additionalData, city));
-                    console.log(`[AntiShare] Account ${userToken} suspended until ${unfreezeDate} (failedAttempts: ${userData.stats.failedAttempts})`);
-                    
-                    // 保存封禁状态
-                    await storageAdapter.put(`user:${userToken}`, userData);
-                    
-                    return {
-                        allowed: false,
-                        reason: 'suspended',
-                        suspendUntil,
-                        suspendReason
-                    };
-                }
+- ⚠️ 尝试超过城市上限`;
+                
+                context.waitUntil(sendEnhancedTgNotification(settings, '🚫 *账号已临时封禁*', request, additionalData, city));
+                console.log(`[AntiShare] Account ${userToken} suspended until ${unfreezeDate} (failedAttempts: ${userData.stats.failedAttempts})`);
+                
+                // 保存封禁状态
+                await storageAdapter.put(`user:${userToken}`, userData);
+                
+                return {
+                    allowed: false,
+                    reason: 'suspended',
+                    suspendUntil,
+                    suspendReason
+                };
             }
-            
-            // 保存failedAttempts
-            await storageAdapter.put(`user:${userToken}`, userData);
-            
-            return {
-                allowed: false,
-                reason: 'new_device_new_city',
-                deviceId,
-                city,
-                failedAttempts: userData.stats.failedAttempts
-            };
         }
-    }
-    
-    // 6. 初始化设备（所有检测通过后才初始化）
-    if (isNewDevice) {
-        userData.devices[deviceId] = {
-            deviceId,
-            name: userAgent,  // 直接使用完整的 User-Agent 作为设备名称
-            userAgent,
-            firstSeen: Date.now(),
-            lastSeen: Date.now(),
-            requestCount: 0,
-            cities: {}
+        
+        // 保存failedAttempts
+        await storageAdapter.put(`user:${userToken}`, userData);
+        
+        return {
+            allowed: false,
+            reason: 'city_limit_exceeded',
+            currentCityCount: allCityKeysSet.size,
+            maxCities,
+            failedAttempts: userData.stats.failedAttempts
         };
-        
-        // 发送新设备绑定成功通知
-        if (config.telegram.NOTIFY_ON_NEW_DEVICE) {
-            const newDeviceCount = Object.keys(userData.devices).length;
-            const additionalData = `*Token:* \`${userToken}\`
-*设备ID:* \`${deviceId}\`
-*设备UA:* \`${userAgent}\`
-*城市:* \`${city}\`
-*当前设备数:* \`${newDeviceCount}\`/${config.antiShare.MAX_DEVICES}
-*IP:* \`${clientIp}\`
-*绑定时间:* \`${new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}\``;
-            context.waitUntil(sendEnhancedTgNotification(settings, '✅ *新设备绑定成功*', request, additionalData, city));
-        }
     }
     
-    const device = userData.devices[deviceId];
-    const isNewCity = !device.cities[cityKey];
-    const currentDeviceCount = Object.keys(userData.devices).length;
-    
-    // 【检测2】已存在设备的城市变化检测（账户维度 + 城市白名单自动扩展）
-    // 注意：新设备的城市检测已在前面处理，这里只处理已存在设备
-    if (shouldCheckCity && isNewCity && !isNewDevice) {
-        // 获取整个账户下所有设备的所有城市key（小写，去重）
-        const allCityKeysSet = new Set();
-        const allCitiesForDisplay = [];
-        Object.values(userData.devices).forEach(dev => {
-            Object.values(dev.cities).forEach(cityInfo => {
-                const key = cityInfo.city.toLowerCase();
-                if (!allCityKeysSet.has(key)) {
-                    allCityKeysSet.add(key);
-                    allCitiesForDisplay.push(cityInfo.city);
-                }
-            });
-        });
-        
-        // 如果城市在账户中已存在，直接允许
-        if (allCityKeysSet.has(cityKey)) {
-            // 设备可以在账户已有的城市间移动
-        } else {
-            // 城市不在账户中，检查是否达到城市上限
-            const currentCityCount = allCityKeysSet.size;
-            const maxCities = config.antiShare.MAX_CITIES;  // 使用已合并的有效配置
-            
-            if (currentCityCount >= maxCities) {
-                // 已达到城市上限，拒绝新城市
+    // 【可疑性检测】只在设备数达到阈值后才检测"新设备新城市"的可疑性
+    if (shouldCheckCity) {
+        if (isNewDevice) {
+            // 【情况2】新设备
+            if (cityExists) {
+                // 2.1: 新设备 + 已存在城市 → ✅ 放行（设备将在后续初始化）
+                console.log(`[AntiShare] New device with existing city allowed: ${deviceId} → ${city}`);
+            } else {
+                // 2.2: 新设备 + 新城市 → ❌ 拒绝（可疑共享）
                 if (config.telegram.NOTIFY_ON_CITY_MISMATCH) {
                     const additionalData = `*Token:* \`${userToken}\`
 *设备ID:* \`${deviceId}\`
 *设备UA:* \`${userAgent}\`
-*账户已有城市:* \`${allCitiesForDisplay.join(', ')}\` (${currentCityCount}/${maxCities})
+*账户已有城市:* \`${allCitiesForDisplay.length > 0 ? allCitiesForDisplay.join(', ') : '无'}\`
 *当前城市:* \`${city}\`
-*设备数:* \`${deviceCount}\`
+*已有设备数:* \`${deviceCount}\`
+*尝试添加:* 第${deviceCount + 1}台设备
 *IP:* \`${clientIp}\`
-*原因:* 该城市非常用城市（账户已达${maxCities}个城市上限）`;
-                    context.waitUntil(sendEnhancedTgNotification(settings, '🌍 *城市异常*', request, additionalData, city));
+*原因:* 新设备访问新城市，请用常用节点或关闭代理后尝试更新`;
+                    context.waitUntil(sendEnhancedTgNotification(settings, '🚫 *新设备新城市*', request, additionalData, city));
                 }
                 
                 // 记录失败尝试次数
@@ -3030,7 +2986,7 @@ async function performAntiShareCheck(userToken, userData, request, env, config, 
                             durationText = `${minutes}分钟`;
                         }
                         
-                        const notificationData = `*Token:* \`${userToken}\`
+                        const additionalData = `*Token:* \`${userToken}\`
 *设备ID:* \`${deviceId}\`
 *城市:* \`${city}\`
 *IP:* \`${clientIp}\`
@@ -3040,9 +2996,9 @@ async function performAntiShareCheck(userToken, userData, request, env, config, 
 *触发原因:*
 - 失败尝试: \`${userData.stats.failedAttempts}\` 次（阈值: ${failedAttemptsThreshold}次）
 - 已有设备数: \`${deviceCount}\`
-- ⚠️ 疑似账号共享或滥用（已存在设备访问新城市）`;
+- ⚠️ 新设备访问新城市（可疑共享）`;
                         
-                        context.waitUntil(sendEnhancedTgNotification(settings, '🚫 *账号已临时封禁*', request, notificationData, city));
+                        context.waitUntil(sendEnhancedTgNotification(settings, '🚫 *账号已临时封禁*', request, additionalData, city));
                         console.log(`[AntiShare] Account ${userToken} suspended until ${unfreezeDate} (failedAttempts: ${userData.stats.failedAttempts})`);
                         
                         // 保存封禁状态
@@ -3062,33 +3018,140 @@ async function performAntiShareCheck(userToken, userData, request, env, config, 
                 
                 return {
                     allowed: false,
-                    reason: 'existing_device_new_city',
+                    reason: 'new_device_new_city',
                     deviceId,
                     city,
-                    existingCities: allCitiesForDisplay,
-                    cityCount: currentCityCount,
-                    maxCities,
                     failedAttempts: userData.stats.failedAttempts
                 };
             }
-            // 未达到城市上限，允许自动扩展（会在后续统计中记录新城市）
-            console.log(`[AntiShare] City whitelist expanding: ${city} (${currentCityCount + 1}/${maxCities})`);
-            
-            // 发送城市扩展通知
-            if (config.telegram.NOTIFY_ON_CITY_MISMATCH) {
-                const additionalData = `*Token:* \`${userToken}\`
+        } else {
+            // 【情况1】已存在设备
+            if (!cityExists) {
+                // 1.2: 已存在设备 + 新城市
+                if (allCityKeysSet.size >= maxCities) {
+                    // 1.2.2: 已达上限 → ❌ 拒绝
+                    if (config.telegram.NOTIFY_ON_CITY_MISMATCH) {
+                        const additionalData = `*Token:* \`${userToken}\`
 *设备ID:* \`${deviceId}\`
 *设备UA:* \`${userAgent}\`
-*新增城市:* \`${city}\`
-*账户已有城市:* \`${allCitiesForDisplay.join(', ')}\`
-*城市数量:* \`${currentCityCount + 1}\`/${maxCities}
-*设备数:* \`${currentDeviceCount}\`
+*账户已有城市:* \`${allCitiesForDisplay.join(', ')}\` (${allCityKeysSet.size}/${maxCities})
+*当前城市:* \`${city}\`
+*设备数:* \`${deviceCount}\`
 *IP:* \`${clientIp}\`
-*状态:* ✅ 已加入城市白名单`;
-                context.waitUntil(sendEnhancedTgNotification(settings, '🌍 *新城市已加入*', request, additionalData, city));
+*原因:* 该城市非常用城市（账户已达${maxCities}个城市上限）`;
+                        context.waitUntil(sendEnhancedTgNotification(settings, '🌍 *城市异常*', request, additionalData, city));
+                    }
+                    
+                    // 记录失败尝试次数
+                    userData.stats.failedAttempts = (userData.stats.failedAttempts || 0) + 1;
+                    
+                    // 🔍 立即检查是否需要触发封禁
+                    if (config.antiShare.SUSPEND_ENABLED) {
+                        const failedAttemptsThreshold = config.antiShare.SUSPEND_FAILED_ATTEMPTS_THRESHOLD;
+                        
+                        if (userData.stats.failedAttempts >= failedAttemptsThreshold) {
+                            // 触发临时封禁
+                            const suspendDurationMs = config.antiShare.SUSPEND_DURATION_DAYS * 24 * 60 * 60 * 1000;
+                            const suspendUntil = Date.now() + suspendDurationMs;
+                            const suspendReason = `可疑的高频失败尝试（${userData.stats.failedAttempts}次失败尝试，疑似账号共享或滥用）`;
+                            
+                            userData.suspend = {
+                                at: Date.now(),
+                                until: suspendUntil,
+                                reason: suspendReason,
+                                deviceCount: deviceCount,
+                                failedAttempts: userData.stats.failedAttempts
+                            };
+                            
+                            // 发送Telegram封禁通知
+                            const unfreezeDate = new Date(suspendUntil).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
+                            
+                            // 格式化封禁时长
+                            let durationText = '';
+                            const days = config.antiShare.SUSPEND_DURATION_DAYS;
+                            if (days >= 1) {
+                                durationText = `${days}天`;
+                            } else if (days >= 1/24) {
+                                const hours = Math.round(days * 24);
+                                durationText = `${hours}小时`;
+                            } else {
+                                const minutes = Math.round(days * 24 * 60);
+                                durationText = `${minutes}分钟`;
+                            }
+                            
+                            const additionalData = `*Token:* \`${userToken}\`
+*设备ID:* \`${deviceId}\`
+*城市:* \`${city}\`
+*IP:* \`${clientIp}\`
+*封禁时长:* ${durationText}
+*解封时间:* \`${unfreezeDate}\`
+
+*触发原因:*
+- 失败尝试: \`${userData.stats.failedAttempts}\` 次（阈值: ${failedAttemptsThreshold}次）
+- 已有设备数: \`${deviceCount}\`
+- ⚠️ 已有设备访问新城市，超过城市上限`;
+                            
+                            context.waitUntil(sendEnhancedTgNotification(settings, '🚫 *账号已临时封禁*', request, additionalData, city));
+                            console.log(`[AntiShare] Account ${userToken} suspended until ${unfreezeDate} (failedAttempts: ${userData.stats.failedAttempts})`);
+                            
+                            // 保存封禁状态
+                            await storageAdapter.put(`user:${userToken}`, userData);
+                            
+                            return {
+                                allowed: false,
+                                reason: 'suspended',
+                                suspendUntil,
+                                suspendReason
+                            };
+                        }
+                    }
+                    
+                    // 保存failedAttempts
+                    await storageAdapter.put(`user:${userToken}`, userData);
+                    
+                    return {
+                        allowed: false,
+                        reason: 'city_limit_exceeded',
+                        currentCityCount: allCityKeysSet.size,
+                        maxCities,
+                        failedAttempts: userData.stats.failedAttempts
+                    };
+                }
+                // 1.2.1: 未达上限 → ✅ 放行
             }
+            // 1.1: 已存在设备 + 已存在城市 → ✅ 放行
         }
     }
+    
+    // 6. 初始化设备（所有检测通过后才初始化）
+    if (isNewDevice) {
+        userData.devices[deviceId] = {
+            deviceId,
+            name: userAgent,  // 直接使用完整的 User-Agent 作为设备名称
+            userAgent,
+            firstSeen: Date.now(),
+            lastSeen: Date.now(),
+            requestCount: 0,
+            cities: {}
+        };
+        
+        // 发送新设备绑定成功通知
+        if (config.telegram.NOTIFY_ON_NEW_DEVICE) {
+            const newDeviceCount = Object.keys(userData.devices).length;
+            const additionalData = `*Token:* \`${userToken}\`
+*设备ID:* \`${deviceId}\`
+*设备UA:* \`${userAgent}\`
+*城市:* \`${city}\`
+*当前设备数:* \`${newDeviceCount}\`/${config.antiShare.MAX_DEVICES}
+*IP:* \`${clientIp}\`
+*绑定时间:* \`${new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}\``;
+            context.waitUntil(sendEnhancedTgNotification(settings, '✅ *新设备绑定成功*', request, additionalData, city));
+        }
+    }
+    
+    const device = userData.devices[deviceId];
+    const isNewCity = !device.cities[cityKey];
+    const currentDeviceCount = Object.keys(userData.devices).length;
     
     // 【检测3】访问次数限制
     const today = new Date().toISOString().split('T')[0];
