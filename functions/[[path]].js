@@ -4178,9 +4178,24 @@ async function handleMisubRequest(context) {
     if (profileIdentifier) {
 
         // [修正] 使用 config 變量
-        if (!token || token !== config.profileToken) {
-            return new Response('Invalid Profile Token', { status: 403 });
+        // 【安全检查】二段式 URL 需要有效的管理员 Key
+        const adminKey = url.searchParams.get('admin_key');
+        const hasValidToken = token && token === config.profileToken;
+        const hasValidAdminKey = adminKey && adminKey === config.adminKey;
+        
+        if (!hasValidToken && !hasValidAdminKey) {
+            // 返回错误节点而不是 403，防止客户端使用缓存
+            const errorNode = `trojan://00000000-0000-0000-0000-000000000000@127.0.0.1:443#${encodeURIComponent('订阅链接异常')}`;
+            const errorContent = [errorNode].join('\n');
+            console.warn('[Security] Attempted access to profile without valid token or admin_key');
+            return new Response(btoa(unescape(encodeURIComponent(errorContent))), {
+                headers: {
+                    'Content-Type': 'text/plain; charset=utf-8',
+                    'Cache-Control': 'no-store, no-cache'
+                }
+            });
         }
+        
         const profile = allProfiles.find(p => (p.customId && p.customId === profileIdentifier) || p.id === profileIdentifier);
         if (profile && profile.enabled) {
             // Check if the profile has an expiration date and if it's expired
