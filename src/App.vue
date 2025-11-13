@@ -3,6 +3,7 @@ import { ref, onMounted } from 'vue';
 import { useThemeStore } from './stores/theme';
 import { useSessionStore } from './stores/session';
 import { useToastStore } from './stores/toast';
+import { useUIStore } from './stores/ui';
 import { storeToRefs } from 'pinia';
 
 import Dashboard from './components/Dashboard.vue';
@@ -26,11 +27,15 @@ const { checkSession, login, logout } = sessionStore;
 const toastStore = useToastStore();
 const { toast: toastState } = storeToRefs(toastStore);
 
+const uiStore = useUIStore();
+
 // 页面切换
 const currentPage = ref('dashboard'); // 'dashboard' or 'users'
 
 function switchPage(page) {
   currentPage.value = page;
+  // 重置所有 UI 状态，防止弹窗在页面切换时保持打开状态
+  uiStore.hide();
 }
 
 onMounted(() => {
