@@ -912,6 +912,10 @@ async function handleApiRequest(request, env) {
                 const isSuspended = userData.suspend?.until && userData.suspend.until > now;
                 const isExpired = userData.expiresAt && userData.expiresAt < now;
                 
+                // 生成订阅链接
+                const profileIdForUrl = profile?.customId || userData.profileId;
+                const subscriptionUrl = `${new URL(request.url).origin}/${profile?.token}/${profileIdForUrl}/${row.token}`;
+                
                 return {
                     token: row.token,
                     profileId: userData.profileId,
@@ -928,7 +932,8 @@ async function handleApiRequest(request, env) {
                     updatedAt: row.updated_at,
                     isSuspended,
                     isExpired,
-                    suspendReason: userData.suspend?.reason || null
+                    suspendReason: userData.suspend?.reason || null,
+                    subscriptionUrl
                 };
             });
             

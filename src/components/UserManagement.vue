@@ -161,6 +161,11 @@
                       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
                     </svg>
                   </button>
+                  <button @click="copySubscriptionUrl(user.subscriptionUrl)" class="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300" title="复制订阅链接">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.658 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+                    </svg>
+                  </button>
                   <button v-if="user.isSuspended" @click="unsuspendUser(user.token)" class="text-green-600 dark:text-green-400 hover:text-green-800 dark:hover:text-green-300" title="解封">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 11V7a4 4 0 118 0m-4 8v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z" />
@@ -228,6 +233,9 @@
           <div class="flex items-center justify-end gap-2 pt-2">
             <button @click="viewUserDetail(user.token)" class="px-3 py-1.5 text-sm text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded-md transition-colors">
               详情
+            </button>
+            <button @click="copySubscriptionUrl(user.subscriptionUrl)" class="px-3 py-1.5 text-sm text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-md transition-colors">
+              复制链接
             </button>
             <button v-if="user.isSuspended" @click="unsuspendUser(user.token)" class="px-3 py-1.5 text-sm text-green-600 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/20 rounded-md transition-colors">
               解封
@@ -495,6 +503,15 @@ async function copyToClipboard(text) {
     console.error('Copy error:', error);
     showToast('❌ 复制失败：' + error.message, 'error');
   }
+}
+
+// 复制订阅链接
+async function copySubscriptionUrl(url) {
+  if (!url) {
+    showToast('❌ 订阅链接不可用', 'error');
+    return;
+  }
+  await copyToClipboard(url);
 }
 
 // 格式化日期
