@@ -87,6 +87,15 @@
         <table class="w-full">
           <thead class="bg-gray-50 dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700">
             <tr>
+              <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider w-12">
+                <input 
+                  type="checkbox" 
+                  v-model="selectAll" 
+                  @change="toggleSelectAll"
+                  class="rounded border-gray-300 dark:border-gray-600 text-indigo-600 focus:ring-indigo-500"
+                  title="全选"
+                />
+              </th>
               <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Token</th>
               <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">订阅组</th>
               <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">状态</th>
@@ -98,7 +107,15 @@
             </tr>
           </thead>
           <tbody class="divide-y divide-gray-200 dark:divide-gray-700">
-            <tr v-for="user in users" :key="user.token" class="hover:bg-gray-50 dark:hover:bg-gray-750 transition-colors">
+            <tr v-for="user in users" :key="user.token" class="hover:bg-gray-50 dark:hover:bg-gray-750 transition-colors" :class="{ 'bg-indigo-50 dark:bg-indigo-900/20': selectedTokens.has(user.token) }">
+              <td class="px-4 py-3 w-12">
+                <input 
+                  type="checkbox" 
+                  :checked="selectedTokens.has(user.token)"
+                  @change="toggleUserSelect(user.token)"
+                  class="rounded border-gray-300 dark:border-gray-600 text-indigo-600 focus:ring-indigo-500"
+                />
+              </td>
               <td class="px-4 py-3">
                 <div class="flex items-center gap-2">
                   <code class="text-sm font-mono text-gray-900 dark:text-white">{{ user.token }}</code>
@@ -185,10 +202,16 @@
 
       <!-- 移动端卡片 -->
       <div class="md:hidden divide-y divide-gray-200 dark:divide-gray-700">
-        <div v-for="user in users" :key="user.token" class="p-4 space-y-3">
+        <div v-for="user in users" :key="user.token" class="p-4 space-y-3" :class="{ 'bg-indigo-50 dark:bg-indigo-900/20': selectedTokens.has(user.token) }">
           <div class="flex items-start justify-between">
             <div class="flex-1">
               <div class="flex items-center gap-2 mb-1">
+                <input 
+                  type="checkbox" 
+                  :checked="selectedTokens.has(user.token)"
+                  @change="toggleUserSelect(user.token)"
+                  class="rounded border-gray-300 dark:border-gray-600 text-indigo-600 focus:ring-indigo-500"
+                />
                 <code class="text-sm font-mono text-gray-900 dark:text-white">{{ user.token }}</code>
                 <button @click="copyToClipboard(user.token)" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
                   <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -248,8 +271,29 @@
       </div>
     </div>
 
+    <!-- 批量操作栏 -->
+    <div v-if="!loading && users.length > 0 && hasSelected" class="bg-indigo-50 dark:bg-indigo-900/20 rounded-lg border border-indigo-200 dark:border-indigo-800 px-4 py-3 flex items-center justify-between">
+      <div class="text-sm text-indigo-900 dark:text-indigo-200">
+        已选择 <span class="font-semibold">{{ selectedCount }}</span> 个用户
+      </div>
+      <div class="flex items-center gap-2">
+        <button
+          @click="selectedTokens.clear(); selectAll = false;"
+          class="px-3 py-1.5 text-sm border border-indigo-300 dark:border-indigo-700 text-indigo-700 dark:text-indigo-300 rounded-md hover:bg-indigo-100 dark:hover:bg-indigo-800 transition-colors"
+        >
+          取消选择
+        </button>
+        <button
+          @click="batchDeleteSelectedUsers"
+          class="px-3 py-1.5 text-sm bg-red-600 hover:bg-red-700 text-white rounded-md transition-colors"
+        >
+          🗑️ 批量删除
+        </button>
+      </div>
+    </div>
+
     <!-- 空状态 -->
-    <div v-else class="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-12 text-center">
+    <div v-else-if="users.length === 0" class="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-12 text-center">
       <svg xmlns="http://www.w3.org/2000/svg" class="h-16 w-16 mx-auto text-gray-400 dark:text-gray-600 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
       </svg>
@@ -306,8 +350,8 @@
 </template>
 
 <script setup>
-import { ref, onMounted, watch } from 'vue';
-import { fetchUsers as apiFetchUsers, unsuspendUser as apiUnsuspendUser, deleteUser as apiDeleteUser } from '../lib/api.js';
+import { ref, onMounted, watch, computed } from 'vue';
+import { fetchUsers as apiFetchUsers, unsuspendUser as apiUnsuspendUser, deleteUser as apiDeleteUser, batchDeleteUsers as apiBatchDeleteUsers } from '../lib/api.js';
 import { useToastStore } from '../stores/toast.js';
 import UserDetailModal from './UserDetailModal.vue';
 
@@ -317,6 +361,8 @@ const users = ref([]);
 const profiles = ref([]);
 const loading = ref(false);
 const selectedUser = ref(null);
+const selectedTokens = ref(new Set()); // 选中的用户 tokens
+const selectAll = ref(false); // 全选状态
 
 const filters = ref({
   profileId: '',
@@ -325,6 +371,12 @@ const filters = ref({
   page: 0,
   pageSize: 20
 });
+
+// 计算属性：选中的用户数
+const selectedCount = computed(() => selectedTokens.value.size);
+
+// 计算属性：是否有选中的用户
+const hasSelected = computed(() => selectedCount.value > 0);
 
 const pagination = ref({
   page: 0,
@@ -336,6 +388,9 @@ const pagination = ref({
 // 加载用户列表
 async function loadUsers() {
   loading.value = true;
+  // 清除选中状态
+  selectedTokens.value.clear();
+  selectAll.value = false;
   try {
     const result = await apiFetchUsers(filters.value);
     
@@ -551,6 +606,56 @@ function formatDate(dateString) {
 function isExpired(dateString) {
   if (!dateString) return false;
   return new Date(dateString) < new Date();
+}
+
+// 切换单个用户的选中状态
+function toggleUserSelect(token) {
+  if (selectedTokens.value.has(token)) {
+    selectedTokens.value.delete(token);
+  } else {
+    selectedTokens.value.add(token);
+  }
+  // 更新全选状态
+  selectAll.value = selectedTokens.value.size === users.value.length && users.value.length > 0;
+}
+
+// 全选/取消全选
+function toggleSelectAll() {
+  if (selectAll.value) {
+    // 全选
+    users.value.forEach(user => selectedTokens.value.add(user.token));
+  } else {
+    // 取消全选
+    selectedTokens.value.clear();
+  }
+}
+
+// 批量删除用户
+async function batchDeleteSelectedUsers() {
+  if (selectedCount.value === 0) {
+    showToast('请先选择要删除的用户', 'error');
+    return;
+  }
+  
+  if (!confirm(`确定要删除这 ${selectedCount.value} 个用户吗？此操作不可逆！`)) {
+    return;
+  }
+  
+  try {
+    const tokens = Array.from(selectedTokens.value);
+    const result = await apiBatchDeleteUsers(tokens);
+    
+    if (result.success) {
+      showToast(`✅ ${result.message}`, 'success');
+      // 重新加载用户列表
+      await loadUsers();
+    } else {
+      showToast(`❌ ${result.message || '删除失败'}`, 'error');
+    }
+  } catch (error) {
+    console.error('Batch delete error:', error);
+    showToast('❌ 删除失败：' + error.message, 'error');
+  }
 }
 
 // 页面加载时初始化

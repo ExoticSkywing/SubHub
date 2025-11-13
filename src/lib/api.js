@@ -340,3 +340,31 @@ export async function deleteUser(token) {
         return { success: false, message: '网络请求失败，请检查网络连接' };
     }
 }
+
+/**
+ * 批量删除用户
+ * @param {Array<string>} tokens - 用户 Token 数组
+ * @returns {Promise<Object>} - 操作结果
+ */
+export async function batchDeleteUsers(tokens) {
+    try {
+        const response = await fetch('/api/users/batch-delete', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ tokens })
+        });
+        
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({}));
+            const errorMessage = errorData.error || errorData.message || `服务器错误 (${response.status})`;
+            return { success: false, message: errorMessage };
+        }
+
+        return await response.json();
+    } catch (error) {
+        console.error("Failed to batch delete users:", error);
+        return { success: false, message: '网络请求失败，请检查网络连接' };
+    }
+}

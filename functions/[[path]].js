@@ -1160,6 +1160,99 @@ async function handleApiRequest(request, env) {
         }
     }
     
+    // DELETE /api/users/:token - 删除用户
+    if (path.match(/^\/users\/[^\/]+$/) && request.method === 'DELETE') {
+        try {
+            const token = path.split('/')[2];
+            if (!token) {
+                return new Response(JSON.stringify({
+                    success: false,
+                    error: 'Token is required'
+                }), { status: 400 });
+            }
+            
+            const storageAdapter = await getStorageAdapter(env);
+            const userDataRaw = await storageAdapter.get(`user:${token}`);
+            
+            if (!userDataRaw) {
+                return new Response(JSON.stringify({
+                    success: false,
+                    error: '用户不存在'
+                }), { status: 404 });
+            }
+            
+            // 删除用户
+            await storageAdapter.delete(`user:${token}`);
+            
+            return new Response(JSON.stringify({
+                success: true,
+                message: '用户已删除'
+            }), {
+                headers: { 'Content-Type': 'application/json' }
+            });
+            
+        } catch (error) {
+            console.error('[API Error /users/:token DELETE]', error);
+            return new Response(JSON.stringify({
+                success: false,
+                error: error.message
+            }), { status: 500 });
+        }
+    }
+    
+    // POST /api/users/batch-delete - 批量删除用户
+    if (path === '/users/batch-delete' && request.method === 'POST') {
+        try {
+            const { tokens } = await request.json();
+            
+            if (!Array.isArray(tokens) || tokens.length === 0) {
+                return new Response(JSON.stringify({
+                    success: false,
+                    error: '请提供有效的 token 列表'
+                }), { status: 400 });
+            }
+            
+            const storageAdapter = await getStorageAdapter(env);
+            const results = {
+                success: 0,
+                failed: 0,
+                errors: []
+            };
+            
+            // 批量删除
+            for (const token of tokens) {
+                try {
+                    const userDataRaw = await storageAdapter.get(`user:${token}`);
+                    if (userDataRaw) {
+                        await storageAdapter.delete(`user:${token}`);
+                        results.success++;
+                    } else {
+                        results.failed++;
+                        results.errors.push(`${token}: 用户不存在`);
+                    }
+                } catch (err) {
+                    results.failed++;
+                    results.errors.push(`${token}: ${err.message}`);
+                }
+            }
+            
+            return new Response(JSON.stringify({
+                success: true,
+                message: `成功删除 ${results.success} 个用户${results.failed > 0 ? `，失败 ${results.failed} 个` : ''}`,
+                data: results
+            }), {
+                headers: { 'Content-Type': 'application/json' }
+            });
+            
+        } catch (error) {
+            console.error('[API Error /users/batch-delete POST]', error);
+            return new Response(JSON.stringify({
+                success: false,
+                error: error.message
+            }), { status: 500 });
+        }
+    }
+    
     // PATCH /api/users/:token - 修改用户信息
     if (path.match(/^\/users\/[^\/]+$/) && request.method === 'PATCH') {
         try {
