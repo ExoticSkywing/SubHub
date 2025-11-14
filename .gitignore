@@ -25,5 +25,3 @@ dist-ssr
 .vscode
 # Misc
 .DS_Store
-
-/doc/Implementing Anti-Share Mechanism.md
