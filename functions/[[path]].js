@@ -260,22 +260,29 @@ const parseBandwidthToBytes = (bandwidthStr) => {
   }
   
   const str = bandwidthStr.trim().toUpperCase();
-  const match = str.match(/^([\d.]+)\s*(B|KB|MB|GB|TB|PB)?$/);
+  // 支持 G、GB、T、TB 等简写和全写
+  const match = str.match(/^([\d.]+)\s*([KMGTPB]+)?$/);
   
   if (!match) {
     return 10737418240; // 默认 10GB
   }
   
   const value = parseFloat(match[1]);
-  const unit = match[2] || 'B';
+  let unit = (match[2] || 'B').toUpperCase();
   const k = 1024;
   
+  // 规范化单位（处理 G -> GB, T -> TB 等）
   const unitMap = {
     'B': 1,
+    'K': k,
     'KB': k,
+    'M': k * k,
     'MB': k * k,
+    'G': k * k * k,
     'GB': k * k * k,
+    'T': k * k * k * k,
     'TB': k * k * k * k,
+    'P': k * k * k * k * k,
     'PB': k * k * k * k * k
   };
   
