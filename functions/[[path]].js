@@ -1092,6 +1092,10 @@ async function handleApiRequest(request, env) {
                 activatedAt: userData.activatedAt,
                 expiresAt: userData.expiresAt,
                 
+                // 用户备注
+                remark: userData.remark || '',
+                remarkHistory: userData.remarkHistory || [],
+                
                 // 设备信息
                 devices: Object.entries(userData.devices || {}).map(([id, device]) => ({
                     id,
@@ -1332,6 +1336,35 @@ async function handleApiRequest(request, env) {
             }
             if (updates.status !== undefined) {
                 userData.status = updates.status;
+            }
+            
+            // 【新增】处理备注更新
+            if (updates.remark !== undefined) {
+                // 验证备注长度（最多50字符）
+                if (updates.remark && updates.remark.length > 50) {
+                    return new Response(JSON.stringify({
+                        success: false,
+                        error: '备注长度不能超过50字符'
+                    }), { status: 400 });
+                }
+                
+                // 如果备注有变化，记录到历史
+                if (updates.remark !== (userData.remark || '')) {
+                    if (!userData.remarkHistory) {
+                        userData.remarkHistory = [];
+                    }
+                    
+                    // 保存旧备注到历史（最多保留10条）
+                    userData.remarkHistory.unshift({
+                        content: userData.remark || '',
+                        updatedAt: new Date().toISOString()
+                    });
+                    
+                    // 只保留最近 10 条历史
+                    userData.remarkHistory = userData.remarkHistory.slice(0, 10);
+                }
+                
+                userData.remark = updates.remark;
             }
             
             // 保存更新

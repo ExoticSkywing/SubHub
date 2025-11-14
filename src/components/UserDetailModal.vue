@@ -42,6 +42,39 @@
             </button>
           </div>
 
+          <!-- 用户备注 -->
+          <div class="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-4 border border-blue-200 dark:border-blue-800">
+            <label class="block text-sm font-medium text-gray-900 dark:text-white mb-2">
+              📝 用户备注
+            </label>
+            <div class="flex gap-2">
+              <input
+                v-model="editData.remark"
+                @input="hasChanges = true"
+                type="text"
+                maxlength="50"
+                placeholder="输入备注（最多50字符）"
+                class="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white text-sm"
+              >
+              <span class="text-xs text-gray-500 dark:text-gray-400 self-center whitespace-nowrap">
+                {{ (editData.remark || '').length }}/50
+              </span>
+            </div>
+            
+            <!-- 修改历史 -->
+            <details v-if="userDetail.remarkHistory && userDetail.remarkHistory.length > 0" class="mt-3 text-xs">
+              <summary class="cursor-pointer text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 font-medium">
+                📋 修改历史 ({{ userDetail.remarkHistory.length }})
+              </summary>
+              <div class="mt-2 space-y-1 pl-4 border-l-2 border-blue-300 dark:border-blue-700">
+                <div v-for="(history, idx) in userDetail.remarkHistory" :key="idx" class="text-gray-700 dark:text-gray-300">
+                  <div class="font-mono text-xs">{{ history.content || '(无)' }}</div>
+                  <div class="text-xs text-gray-500 dark:text-gray-400">{{ formatDate(history.updatedAt) }}</div>
+                </div>
+              </div>
+            </details>
+          </div>
+
           <!-- 基本信息 -->
           <div class="bg-gray-50 dark:bg-gray-900 rounded-lg p-4 space-y-3">
             <h4 class="font-semibold text-gray-900 dark:text-white mb-3">基本信息</h4>
@@ -258,7 +291,8 @@ const hasChanges = ref(false);
 
 const editData = ref({
   profileId: '',
-  expiresAt: ''
+  expiresAt: '',
+  remark: ''
 });
 
 // 加载用户详情
@@ -277,6 +311,7 @@ async function loadUserDetail() {
       // 初始化编辑数据
       editData.value.profileId = result.data.profileId;
       editData.value.expiresAt = result.data.expiresAt ? formatDateForInput(result.data.expiresAt) : '';
+      editData.value.remark = result.data.remark || '';
       
       console.log('[UserDetail] 用户详情加载成功');
     } else {
@@ -314,6 +349,10 @@ async function handleSave() {
     
     if (editData.value.expiresAt) {
       updates.expiresAt = new Date(editData.value.expiresAt).toISOString();
+    }
+    
+    if (editData.value.remark !== (userDetail.value.remark || '')) {
+      updates.remark = editData.value.remark;
     }
     
     const result = await updateUser(props.token, updates);
