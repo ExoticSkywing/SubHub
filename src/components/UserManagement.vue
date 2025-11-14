@@ -51,12 +51,12 @@
 
         <!-- 搜索框 -->
         <div>
-          <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">搜索 Token</label>
+          <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">搜索</label>
           <input
             v-model="filters.search"
             @input="handleSearchInput"
             type="text"
-            placeholder="输入 Token 搜索..."
+            placeholder="输入 Token 或备注搜索..."
             class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
           />
         </div>
@@ -98,6 +98,7 @@
               </th>
               <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Token</th>
               <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">订阅组</th>
+              <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">备注</th>
               <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">状态</th>
               <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">设备</th>
               <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">城市</th>
@@ -129,6 +130,10 @@
               <td class="px-4 py-3">
                 <span class="text-sm text-gray-900 dark:text-white">{{ user.profileName }}</span>
                 <span v-if="user.customId" class="ml-2 text-xs text-gray-500 dark:text-gray-400">({{ user.customId }})</span>
+              </td>
+              <td class="px-4 py-3">
+                <span v-if="user.remark" class="text-sm text-blue-600 dark:text-blue-400 font-medium">{{ user.remark }}</span>
+                <span v-else class="text-sm text-gray-400 dark:text-gray-500 italic">-</span>
               </td>
               <td class="px-4 py-3">
                 <div class="flex flex-wrap gap-1">

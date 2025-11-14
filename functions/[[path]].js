@@ -894,8 +894,8 @@ async function handleApiRequest(request, env) {
                 params.push(status);
             }
             if (search) {
-                conditions.push("(token LIKE ? OR json_extract(data, '$.userToken') LIKE ?)");
-                params.push(`%${search}%`, `%${search}%`);
+                conditions.push("(token LIKE ? OR json_extract(data, '$.userToken') LIKE ? OR json_extract(data, '$.remark') LIKE ?)");
+                params.push(`%${search}%`, `%${search}%`, `%${search}%`);
             }
             
             // 记录 WHERE 子句的参数数量（用于 count 查询）
@@ -975,6 +975,7 @@ async function handleApiRequest(request, env) {
                     profileId: userData.profileId,
                     profileName: profile?.name || 'Unknown',
                     customId: profile?.customId || '',
+                    remark: userData.remark || '',
                     status: userData.status,
                     deviceCount: Object.keys(userData.devices || {}).length,
                     deviceLimit: effectiveAntiShareConfig.MAX_DEVICES,
