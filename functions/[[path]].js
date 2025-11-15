@@ -1134,8 +1134,10 @@ async function handleApiRequest(request, env) {
                 stats: {
                     totalRequests: userData.stats?.totalRequests || 0,
                     lastRequest: userData.stats?.lastRequest,
+                    dailyCount: userData.stats?.dailyCount || 0,
                     failedAttempts: userData.stats?.failedAttempts || 0,
-                    lastFailedAttempt: userData.stats?.lastFailedAttempt
+                    lastFailedAttempt: userData.stats?.lastFailedAttempt,
+                    rateLimitAttempts: userData.stats?.rateLimitAttempts || 0
                 },
                 
                 // 封禁信息（只返回有效的封禁）
