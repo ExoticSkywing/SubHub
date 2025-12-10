@@ -4003,7 +4003,8 @@ async function handleUserSubscription(userToken, profileId, profileToken, reques
             console.log(`[UserSub] User ${userToken} subscription expired!`);
             const expiredNode = `trojan://00000000-0000-0000-0000-000000000000@127.0.0.1:443#${encodeURIComponent('订阅已过期')}`;
             const noticeNodes = [
-                `trojan://00000000-0000-0000-0000-000000000000@127.0.0.1:443#${encodeURIComponent('请续费或联系服务商')}`,
+                `trojan://00000000-0000-0000-0000-000000000000@127.0.0.1:443#${encodeURIComponent('已失效请联系服务商')}`,
+                `trojan://00000000-0000-0000-0000-000000000000@127.0.0.1:443#${encodeURIComponent('tg频道@nebuluxe获取最新订阅')}`,
                 `trojan://00000000-0000-0000-0000-000000000000@127.0.0.1:443#${encodeURIComponent('Token: ' + userToken)}`
             ];
             
