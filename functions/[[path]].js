@@ -2393,16 +2393,23 @@ async function generateCombinedNodeList(context, config, userAgent, misubs, prep
  * @param {URL} url - 请求URL
  * @param {string} userAgent - User-Agent字符串
  * @param {string} effectiveSubConfig - 订阅配置（可选，用于降级判断）
- * @returns {string} - 目标格式（clash/singbox/surge/loon/base64等）
+ * @returns {string} - 目标格式（clash/singbox/surge/loon/mixed/base64等）
  */
 function determineTargetFormat(url, userAgent, effectiveSubConfig = null) {
     let targetFormat = url.searchParams.get('target');
     
     if (!targetFormat) {
-        const supportedFormats = ['clash', 'singbox', 'surge', 'loon', 'base64', 'v2ray', 'trojan'];
+        const supportedFormats = ['clash', 'singbox', 'surge', 'loon', 'shadowrocket', 'mixed', 'base64', 'v2ray', 'trojan'];
         for (const format of supportedFormats) {
             if (url.searchParams.has(format)) {
-                if (format === 'v2ray' || format === 'trojan') { targetFormat = 'base64'; } else { targetFormat = format; }
+                if (format === 'v2ray' || format === 'trojan') {
+                    targetFormat = 'base64';
+                } else if (format === 'shadowrocket') {
+                    // 兼容 ?shadowrocket=1，内部统一映射为 subconverter 支持的 mixed
+                    targetFormat = 'mixed';
+                } else {
+                    targetFormat = format;
+                }
                 break;
             }
         }
@@ -2419,7 +2426,8 @@ function determineTargetFormat(url, userAgent, effectiveSubConfig = null) {
             ['stash', 'clash'],
             ['nekoray', 'clash'],
             ['sing-box', 'singbox'],
-            ['shadowrocket', 'base64'],
+            // Shadowrocket 使用 subconverter 的 mixed 目标，输出标准混合订阅（包含 SSR 等协议）
+            ['shadowrocket', 'mixed'],
             ['v2rayn', 'base64'],
             ['v2rayng', 'base64'],
             ['surge', 'surge'],
@@ -2440,6 +2448,7 @@ function determineTargetFormat(url, userAgent, effectiveSubConfig = null) {
     // 降级逻辑：如果格式需要SubConfig但未配置
     // 注意：Clash不能降级到base64（Clash客户端只支持yaml格式）
     // Loon和Surge可以降级到base64（通用格式）
+    // Shadowrocket 依赖 subconverter 生成专用配置，但不强制要求 SubConfig，可直接使用通用分组
     if (targetFormat && (targetFormat === 'loon' || targetFormat === 'surge')) {
         if (!effectiveSubConfig || effectiveSubConfig.trim() === '') {
             console.log(`[Format] ${targetFormat} requires SubConfig but not configured, fallback to base64 (universal format)`);
