@@ -2830,6 +2830,7 @@ async function performAntiShareCheck(userToken, userData, request, env, config, 
     if (isTestMode) {
         console.log(`[AntiShare] Test mode detected (basic preset), notifications disabled for user ${userToken}`);
     }
+    const remarkLine = userData.remark ? `\n*备注:* \`${userData.remark}\`` : '';
     
     // 【通知包装函数】自动检查是否应该发送通知
     const sendNotificationIfEnabled = async (type, additionalData, city) => {
@@ -2984,7 +2985,7 @@ async function performAntiShareCheck(userToken, userData, request, env, config, 
 - 失败尝试: \`${oldFailedAttempts}\` → \`${userData.stats.failedAttempts}\` 次（阈值: ${failedThreshold}次）
 - 达到上限后尝试: \`${oldRateLimitAttempts}\` → \`${userData.stats.rateLimitAttempts}\` 次（阈值: ${rateLimitThreshold}次）
 
-⚠️ 如继续违规，将更快触发再次封禁。`;
+⚠️ 如继续违规，将更快触发再次封禁。${remarkLine}`;
                 context.waitUntil(sendNotificationIfEnabled('✅ *账号已自动解封*', additionalData, city));
             }
             
@@ -3058,7 +3059,7 @@ async function performAntiShareCheck(userToken, userData, request, env, config, 
 *触发原因:*
 - 失败尝试: \`${userData.stats.failedAttempts}\` 次（阈值: ${failedAttemptsThreshold}次）
 - 已有设备数: \`${deviceCount}\`
-- ⚠️ 疑似账号共享或滥用（频繁尝试添加超限设备）`;
+- ⚠️ 疑似账号共享或滥用（频繁尝试添加超限设备）${remarkLine}`;
                 
                 context.waitUntil(sendNotificationIfEnabled('🚫 *账号已临时封禁*', additionalData, city));
                 console.log(`[AntiShare] Account ${userToken} suspended until ${unfreezeDate} (failedAttempts: ${userData.stats.failedAttempts})`);
@@ -3085,7 +3086,7 @@ async function performAntiShareCheck(userToken, userData, request, env, config, 
 *新设备UA:* \`${userAgent}\`
 *城市:* \`${city}\`
 *IP:* \`${clientIp}\`
-*失败尝试:* \`${userData.stats.failedAttempts}\` 次（阈值: ${config.antiShare.SUSPEND_FAILED_ATTEMPTS_THRESHOLD}次）`;
+*失败尝试:* \`${userData.stats.failedAttempts}\` 次（阈值: ${config.antiShare.SUSPEND_FAILED_ATTEMPTS_THRESHOLD}次）${remarkLine}`;
             context.waitUntil(sendNotificationIfEnabled('🚫 *设备数超限*', additionalData, city));
         }
         
@@ -3135,7 +3136,7 @@ async function performAntiShareCheck(userToken, userData, request, env, config, 
 *当前城市:* \`${city}\`
 *设备数:* \`${deviceCount}\`
 *IP:* \`${clientIp}\`
-*原因:* 账户已达城市上限（${maxCities}个城市），无法添加新城市`;
+*原因:* 账户已达城市上限（${maxCities}个城市），无法添加新城市${remarkLine}`;
             context.waitUntil(sendNotificationIfEnabled('🌍 *城市上限*', additionalData, city));
         }
         
@@ -3186,7 +3187,7 @@ async function performAntiShareCheck(userToken, userData, request, env, config, 
 *触发原因:*
 - 失败尝试: \`${userData.stats.failedAttempts}\` 次（阈值: ${failedAttemptsThreshold}次）
 - 已有设备数: \`${deviceCount}\`
-- ⚠️ 尝试超过城市上限`;
+- ⚠️ 尝试超过城市上限${remarkLine}`;
                 
                 context.waitUntil(sendNotificationIfEnabled('🚫 *账号已临时封禁*', additionalData, city));
                 console.log(`[AntiShare] Account ${userToken} suspended until ${unfreezeDate} (failedAttempts: ${userData.stats.failedAttempts})`);
@@ -3233,7 +3234,7 @@ async function performAntiShareCheck(userToken, userData, request, env, config, 
 *已有设备数:* \`${deviceCount}\`
 *尝试添加:* 第${deviceCount + 1}台设备
 *IP:* \`${clientIp}\`
-*原因:* 新设备访问新城市，请用常用节点或关闭代理后尝试更新`;
+*原因:* 新设备访问新城市，请用常用节点或关闭代理后尝试更新${remarkLine}`;
                     context.waitUntil(sendNotificationIfEnabled('🚫 *新设备新城市*', additionalData, city));
                 }
                 
@@ -3326,7 +3327,7 @@ async function performAntiShareCheck(userToken, userData, request, env, config, 
 *当前城市:* \`${city}\`
 *设备数:* \`${deviceCount}\`
 *IP:* \`${clientIp}\`
-*原因:* 该城市非常用城市（账户已达${maxCities}个城市上限）`;
+*原因:* 该城市非常用城市（账户已达${maxCities}个城市上限）${remarkLine}`;
                         context.waitUntil(sendNotificationIfEnabled('🌍 *城市异常*', additionalData, city));
                     }
                     
@@ -3377,7 +3378,7 @@ async function performAntiShareCheck(userToken, userData, request, env, config, 
 *触发原因:*
 - 失败尝试: \`${userData.stats.failedAttempts}\` 次（阈值: ${failedAttemptsThreshold}次）
 - 已有设备数: \`${deviceCount}\`
-- ⚠️ 已有设备访问新城市，超过城市上限`;
+- ⚠️ 已有设备访问新城市，超过城市上限${remarkLine}`;
                             
                             context.waitUntil(sendNotificationIfEnabled('🚫 *账号已临时封禁*', additionalData, city));
                             console.log(`[AntiShare] Account ${userToken} suspended until ${unfreezeDate} (failedAttempts: ${userData.stats.failedAttempts})`);
@@ -3432,7 +3433,7 @@ async function performAntiShareCheck(userToken, userData, request, env, config, 
 *城市:* \`${city}\`
 *当前设备数:* \`${newDeviceCount}\`/${config.antiShare.MAX_DEVICES}
 *IP:* \`${clientIp}\`
-*绑定时间:* \`${new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}\``;
+*绑定时间:* \`${new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}\`${remarkLine}`;
             context.waitUntil(sendNotificationIfEnabled('✅ *新设备绑定成功*', additionalData, city));
         }
     }
@@ -3542,6 +3543,8 @@ async function performAntiShareCheck(userToken, userData, request, env, config, 
 - 达到上限后失败: \`${rateLimitAttempts}\` 次
 - ⚠️ 可疑的高频访问行为`;
             }
+
+            additionalData += remarkLine;
             
             context.waitUntil(sendNotificationIfEnabled('🚫 *账号已临时封禁*', additionalData, city));
             
@@ -3574,7 +3577,7 @@ async function performAntiShareCheck(userToken, userData, request, env, config, 
 *设备ID:* \`${deviceId}\`
 *城市:* \`${city}\`
 *IP:* \`${clientIp}\`
-*重置时间:* 明天0点(UTC+8)`;
+*重置时间:* 明天0点(UTC+8)${remarkLine}`;
             context.waitUntil(sendNotificationIfEnabled('⏰ *访问次数超限*', additionalData, city));
         }
         
@@ -4213,6 +4216,7 @@ async function handleUserSubscription(userToken, profileId, profileToken, reques
             const domain = new URL(request.url).hostname;
             const lastAccessTime = new Date(userData.stats.lastRequest).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
             const expiresTime = userData.expiresAt ? new Date(userData.expiresAt).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }) : 'N/A';
+            const remarkLine = userData.remark ? `\n*备注:* \`${userData.remark}\`` : '';
             
             if (isFirstActivation) {
                 // 首次激活：发送激活通知（包含所有信息）
@@ -4223,7 +4227,7 @@ async function handleUserSubscription(userToken, profileId, profileToken, reques
 *订阅组:* \`${profileId}\`
 *总访问次数:* \`${userData.stats.totalRequests}\`
 *激活时间:* \`${activatedTime}\`
-*到期时间:* \`${expiresTime}\``;
+*到期时间:* \`${expiresTime}\`${remarkLine}`;
                 
                 context.waitUntil(sendEnhancedTgNotification(config, '✅ *订阅已激活*', request, additionalData));
             } else {
@@ -4236,7 +4240,7 @@ async function handleUserSubscription(userToken, profileId, profileToken, reques
 *状态:* ${statusEmoji} \`${userData.status}\`
 *总访问次数:* \`${userData.stats.totalRequests}\`
 *上次访问:* \`${lastAccessTime}\`
-*到期时间:* \`${expiresTime}\``;
+*到期时间:* \`${expiresTime}\`${remarkLine}`;
                 
                 context.waitUntil(sendEnhancedTgNotification(config, '🛰️ *订阅被访问*', request, additionalData));
             }
