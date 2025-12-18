@@ -158,9 +158,16 @@
                   <p class="text-sm text-gray-600 dark:text-gray-400">今日访问次数</p>
                   <p class="mt-1 text-2xl font-bold text-gray-900 dark:text-white">{{ userDetail.stats.dailyCount || 0 }}</p>
                 </div>
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-yellow-600 dark:text-yellow-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M12 2a10 10 0 100 20 10 10 0 000-20z" />
-                </svg>
+                <button
+                  @click="handleResetDailyCount"
+                  :disabled="saving"
+                  title="重置今日访问次数"
+                  class="inline-flex items-center justify-center h-9 w-9 rounded-full border border-yellow-300 dark:border-yellow-700 text-yellow-700 dark:text-yellow-300 hover:bg-yellow-100 dark:hover:bg-yellow-900/30 transition-colors disabled:opacity-50"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M12 2a10 10 0 100 20 10 10 0 000-20z" />
+                  </svg>
+                </button>
               </div>
             </div>
             <div class="bg-green-50 dark:bg-green-900/20 rounded-lg p-4">
@@ -258,13 +265,6 @@
 
           <!-- 操作按钮 -->
           <div class="flex items-center justify-end gap-3 pt-4 border-t border-gray-200 dark:border-gray-700">
-            <button
-              @click="handleResetDailyCount"
-              :disabled="saving"
-              class="px-4 py-2 text-sm font-medium text-white bg-yellow-600 hover:bg-yellow-700 rounded-lg transition-colors disabled:opacity-50"
-            >
-              重置今日访问次数
-            </button>
             <button
               v-if="userDetail.suspend"
               @click="handleUnsuspend"
