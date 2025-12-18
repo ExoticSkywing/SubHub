@@ -16,6 +16,34 @@ export async function fetchInitialData() {
     }
 }
 
+/**
+ * 重置用户今日访问次数
+ * @param {string} token - 用户 Token
+ * @param {number} [value] - 可选：重置为指定的非负整数
+ * @returns {Promise<Object>} - 操作结果
+ */
+export async function resetUserDailyCount(token, value) {
+    try {
+        const body = value === undefined ? {} : { value };
+        const response = await fetch(`/api/users/${token}/reset-daily`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+        });
+
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({}));
+            const errorMessage = errorData.error || errorData.message || `服务器错误 (${response.status})`;
+            return { success: false, message: errorMessage };
+        }
+
+        return await response.json();
+    } catch (error) {
+        console.error('Failed to reset user daily count:', error);
+        return { success: false, message: '网络请求失败，请检查网络连接' };
+    }
+}
+
 export async function login(password) {
     try {
         const response = await fetch('/api/login', {

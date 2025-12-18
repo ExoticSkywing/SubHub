@@ -1212,6 +1212,84 @@ async function handleApiRequest(request, env) {
             }), { status: 500 });
         }
     }
+
+    // POST /api/users/:token/reset-daily - 重置用户今日访问次数
+    if (path.match(/^\/users\/[^\/]+\/reset-daily$/) && request.method === 'POST') {
+        try {
+            const token = path.split('/')[2];
+            if (!token) {
+                return new Response(JSON.stringify({
+                    success: false,
+                    error: 'Token is required'
+                }), { status: 400 });
+            }
+
+            let body = {};
+            try {
+                body = await request.json();
+            } catch {
+                body = {};
+            }
+
+            const newDailyCount = body.value === undefined ? 0 : body.value;
+            if (typeof newDailyCount !== 'number' || !Number.isFinite(newDailyCount) || newDailyCount < 0 || !Number.isInteger(newDailyCount)) {
+                return new Response(JSON.stringify({
+                    success: false,
+                    error: 'value 必须是非负整数'
+                }), { status: 400 });
+            }
+
+            const storageAdapter = await getStorageAdapter(env);
+            const userDataRaw = await storageAdapter.get(`user:${token}`);
+
+            if (!userDataRaw) {
+                return new Response(JSON.stringify({
+                    success: false,
+                    error: '用户不存在'
+                }), { status: 404 });
+            }
+
+            const userData = typeof userDataRaw === 'string' ? JSON.parse(userDataRaw) : userDataRaw;
+            userData.stats = userData.stats || {};
+
+            const now = new Date();
+            const shanghaiNow = new Date(now.getTime() + 8 * 60 * 60 * 1000);
+            const today = shanghaiNow.toISOString().split('T')[0];
+
+            const oldDailyCount = userData.stats.dailyCount || 0;
+            userData.stats.dailyCount = newDailyCount;
+            userData.stats.dailyDate = today;
+            userData.stats.failedAttempts = 0;
+            userData.stats.rateLimitAttempts = 0;
+
+            await storageAdapter.put(`user:${token}`, userData);
+
+            console.log('[Admin Action] reset-daily', {
+                token,
+                oldDailyCount,
+                newDailyCount,
+                today
+            });
+
+            return new Response(JSON.stringify({
+                success: true,
+                message: '今日访问次数已重置',
+                data: {
+                    dailyCount: userData.stats.dailyCount,
+                    dailyDate: userData.stats.dailyDate
+                }
+            }), {
+                headers: { 'Content-Type': 'application/json' }
+            });
+
+        } catch (error) {
+            console.error('[API Error /users/:token/reset-daily POST]', error);
+            return new Response(JSON.stringify({
+                success: false,
+                error: error.message
+            }), { status: 500 });
+        }
+    }
     
     // DELETE /api/users/:token - 删除用户
     if (path.match(/^\/users\/[^\/]+$/) && request.method === 'DELETE') {

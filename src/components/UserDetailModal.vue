@@ -259,6 +259,13 @@
           <!-- 操作按钮 -->
           <div class="flex items-center justify-end gap-3 pt-4 border-t border-gray-200 dark:border-gray-700">
             <button
+              @click="handleResetDailyCount"
+              :disabled="saving"
+              class="px-4 py-2 text-sm font-medium text-white bg-yellow-600 hover:bg-yellow-700 rounded-lg transition-colors disabled:opacity-50"
+            >
+              重置今日访问次数
+            </button>
+            <button
               v-if="userDetail.suspend"
               @click="handleUnsuspend"
               :disabled="saving"
@@ -289,7 +296,7 @@
 
 <script setup>
 import { ref, watch, onMounted } from 'vue';
-import { fetchUserDetail, updateUser, unsuspendUser as apiUnsuspendUser, deleteUserDevice } from '../lib/api.js';
+import { fetchUserDetail, updateUser, unsuspendUser as apiUnsuspendUser, deleteUserDevice, resetUserDailyCount } from '../lib/api.js';
 import { useToastStore } from '../stores/toast.js';
 
 const props = defineProps({
@@ -343,6 +350,37 @@ async function loadUserDetail() {
     showToast('❌ 加载用户详情失败：' + error.message, 'error');
   } finally {
     loading.value = false;
+  }
+}
+
+// 重置今日访问次数
+async function handleResetDailyCount() {
+  if (!confirm('确定要重置此用户的今日访问次数吗？')) return;
+
+  const input = prompt('输入要重置的次数（留空=0）', '0');
+  if (input === null) return;
+  const trimmed = String(input).trim();
+  const value = trimmed === '' ? 0 : Number(trimmed);
+  if (!Number.isInteger(value) || value < 0) {
+    showToast('❌ 次数必须是非负整数', 'error');
+    return;
+  }
+
+  saving.value = true;
+  try {
+    const result = await resetUserDailyCount(props.token, value);
+    if (result.success) {
+      showToast('✅ 今日访问次数已重置', 'success');
+      emit('updated');
+      await loadUserDetail();
+    } else {
+      showToast('❌ ' + (result.message || '重置失败'), 'error');
+    }
+  } catch (error) {
+    console.error('Reset daily count error:', error);
+    showToast('❌ 重置失败：' + error.message, 'error');
+  } finally {
+    saving.value = false;
   }
 }
 
