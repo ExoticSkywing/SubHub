@@ -36,7 +36,23 @@ const KV_KEY_SUBS = 'misub_subscriptions_v1';
 const KV_KEY_PROFILES = 'misub_profiles_v1';
 const KV_KEY_SETTINGS = 'worker_settings_v1';
 const COOKIE_NAME = 'auth_session';
-const SESSION_DURATION = 8 * 60 * 60 * 1000;
+const DEFAULT_SESSION_DURATION_MS = 30 * 24 * 60 * 60 * 1000;
+
+function getSessionDurationMs(env) {
+    const msRaw = env.ADMIN_SESSION_DURATION_MS;
+    if (msRaw !== undefined && msRaw !== null && msRaw !== '') {
+        const ms = Number(msRaw);
+        if (Number.isFinite(ms) && ms > 0) return Math.floor(ms);
+    }
+
+    const daysRaw = env.ADMIN_SESSION_DAYS;
+    if (daysRaw !== undefined && daysRaw !== null && daysRaw !== '') {
+        const days = Number(daysRaw);
+        if (Number.isFinite(days) && days > 0) return Math.floor(days * 24 * 60 * 60 * 1000);
+    }
+
+    return DEFAULT_SESSION_DURATION_MS;
+}
 
 /**
  * 计算数据的简单哈希值，用于检测变更
@@ -687,7 +703,8 @@ async function authMiddleware(request, env) {
     if (!sessionCookie) return false;
     const token = sessionCookie.split('=')[1];
     const verifiedData = await verifySignedToken(env.COOKIE_SECRET, token);
-    return verifiedData && (Date.now() - parseInt(verifiedData, 10) < SESSION_DURATION);
+    const sessionDurationMs = getSessionDurationMs(env);
+    return verifiedData && (Date.now() - parseInt(verifiedData, 10) < sessionDurationMs);
 }
 
 // sub: 要检查的订阅对象
@@ -829,8 +846,9 @@ async function handleApiRequest(request, env) {
             const { password } = await request.json();
             if (password === env.ADMIN_PASSWORD) {
                 const token = await createSignedToken(env.COOKIE_SECRET, String(Date.now()));
+                const sessionDurationMs = getSessionDurationMs(env);
                 const headers = new Headers({ 'Content-Type': 'application/json' });
-                headers.append('Set-Cookie', `${COOKIE_NAME}=${token}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=${SESSION_DURATION / 1000}`);
+                headers.append('Set-Cookie', `${COOKIE_NAME}=${token}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=${sessionDurationMs / 1000}`);
                 return new Response(JSON.stringify({ success: true }), { headers });
             }
             return new Response(JSON.stringify({ error: '密码错误' }), { status: 401 });
