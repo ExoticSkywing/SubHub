@@ -3900,7 +3900,7 @@ function getBrowserBlockedResponse() {
     <div class="container">
         <div class="icon">🔐</div>
         <h1>此链接仅供对应客户端使用</h1>
-        <p class="subtitle">请在支持应用中打开此链接</p>
+        <p class="subtitle">若不知道当前在做什么，关掉页面即可</p>
         
         <div class="content-section">
             <a href="https://mpin.tsmoe.com/r/mdviewer?file=fanqie-tutorial" class="guide-link" target="_blank">
@@ -4097,6 +4097,15 @@ async function handleUserSubscription(userToken, profileId, profileToken, reques
         if (!profileIdMatches) {
             return new Response('订阅组不匹配', { status: 403 });
         }
+
+        // 3.1 🔧 加载订阅组配置（用于到期签名与反共享策略解析）
+        const profile = allProfilesForMatch.find(p => 
+            (p.customId && p.customId === profileId) || p.id === profileId
+        );
+        
+        if (!profile || !profile.enabled) {
+            return new Response('订阅组不存在或已禁用', { status: 403 });
+        }
         
         // 4. 记录是否为首次激活
         const isFirstActivation = userData.status === 'pending';
@@ -4124,9 +4133,18 @@ async function handleUserSubscription(userToken, profileId, profileToken, reques
             const expiredNode = `trojan://00000000-0000-0000-0000-000000000000@127.0.0.1:443#${encodeURIComponent('订阅已过期')}`;
             const noticeNodes = [
                 `trojan://00000000-0000-0000-0000-000000000000@127.0.0.1:443#${encodeURIComponent('已失效请联系服务商')}`,
-                `trojan://00000000-0000-0000-0000-000000000000@127.0.0.1:443#${encodeURIComponent('tg频道@nebuluxe获取最新订阅')}`,
-                `trojan://00000000-0000-0000-0000-000000000000@127.0.0.1:443#${encodeURIComponent('Token: ' + userToken)}`
             ];
+
+            // 按订阅组设置决定是否附加自定义到期签名节点
+            if (profile && profile.expirySignatureEnabled && profile.expirySignatureText) {
+                noticeNodes.push(
+                    `trojan://00000000-0000-0000-0000-000000000000@127.0.0.1:443#${encodeURIComponent(profile.expirySignatureText)}`
+                );
+            }
+
+            noticeNodes.push(
+                `trojan://00000000-0000-0000-0000-000000000000@127.0.0.1:443#${encodeURIComponent('Token: ' + userToken)}`
+            );
             
             const expiredContent = [expiredNode, ...noticeNodes].join('\n');
             return new Response(btoa(unescape(encodeURIComponent(expiredContent))), {
@@ -4136,16 +4154,6 @@ async function handleUserSubscription(userToken, profileId, profileToken, reques
                     'Subscription-UserInfo': `upload=0; download=0; total=0; expire=${Math.floor(expiresAtTime / 1000)}`
                 }
             });
-        }
-        
-        // 6.3 🔧 加载订阅组配置（用于反共享策略解析）
-        // 复用上方已加载的 allProfilesForMatch
-        const profile = allProfilesForMatch.find(p => 
-            (p.customId && p.customId === profileId) || p.id === profileId
-        );
-        
-        if (!profile || !profile.enabled) {
-            return new Response('订阅组不存在或已禁用', { status: 403 });
         }
         
         // 6.4 🎯 解析该分组和用户的反共享配置（按优先级合并）

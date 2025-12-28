@@ -140,6 +140,13 @@ watch(() => props.profile, (newProfile) => {
         manualNodePrefix: ''
       };
     }
+    // 初始化到期签名设置
+    if (profileCopy.expirySignatureEnabled === undefined) {
+      profileCopy.expirySignatureEnabled = false;
+    }
+    if (!profileCopy.expirySignatureText) {
+      profileCopy.expirySignatureText = '';
+    }
     // 初始化总流量字段（如果不存在）
     if (!profileCopy.totalBandwidth) {
       profileCopy.totalBandwidth = '';
@@ -154,6 +161,8 @@ watch(() => props.profile, (newProfile) => {
       customId: '', 
       expiresAt: '',
       totalBandwidth: '',
+      expirySignatureEnabled: false,
+      expirySignatureText: '',
       prefixSettings: {
         enableManualNodes: null,
         enableSubscriptions: null,
@@ -289,6 +298,32 @@ const handleDeselectAll = (listName, sourceArray) => {
                 class="mt-1 block w-full px-3 py-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md shadow-xs focus:outline-hidden focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm dark:text-white"
               >
               <p class="text-xs text-gray-400 mt-1">设置此订阅组的总流量，仅用于客户端展示，不影响实际流量限制。</p>
+            </div>
+
+            <div>
+              <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                节点到期签名 (可选)
+              </label>
+              <div class="space-y-3 bg-gray-50 dark:bg-gray-800/50 rounded-lg p-3">
+                <label class="inline-flex items-center text-sm text-gray-700 dark:text-gray-300">
+                  <input
+                    type="checkbox"
+                    v-model="localProfile.expirySignatureEnabled"
+                    class="h-4 w-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
+                  />
+                  <span class="ml-2">开启节点到期签名信息</span>
+                </label>
+                <div v-if="localProfile.expirySignatureEnabled" class="ml-1 space-y-1">
+                  <input
+                    type="text"
+                    v-model="localProfile.expirySignatureText"
+                    maxlength="60"
+                    placeholder="例如：通过官网获取最新套餐，或其他签名信息"
+                    class="mt-1 block w-full px-3 py-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md shadow-xs focus:outline-hidden focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm dark:text-white"
+                  >
+                  <p class="text-xs text-gray-500 dark:text-gray-400">开启后，此签名将作为单独一个节点返回给到期用户，最多60个字符。</p>
+                </div>
+              </div>
             </div>
             
             <!-- 前缀设置部分 -->

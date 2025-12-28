@@ -49,6 +49,18 @@ export function useProfiles(initialProfiles, markDirty, config) {
       showToast('订阅组名称不能为空', 'error');
       return;
     }
+    if (profileData.expirySignatureEnabled) {
+      const text = (profileData.expirySignatureText || '').trim();
+      if (!text) {
+        showToast('已开启节点到期签名时，签名信息为必填项', 'error');
+        return;
+      }
+      if (text.length > 60) {
+        showToast('节点到期签名长度不能超过60个字符', 'error');
+        return;
+      }
+      profileData.expirySignatureText = text;
+    }
     if (profileData.customId) {
       profileData.customId = profileData.customId.replace(/[^a-zA-Z0-9-_]/g, '');
       if (profileData.customId && profiles.value.some(p => p.id !== profileData.id && p.customId === profileData.customId)) {
