@@ -43,42 +43,42 @@ export default defineConfig({
         start_url: '/',
         icons: [
           {
-            src: '/icons/icon-72x72.png',
+            src: '/icons/IMG_0477.PNG',
             sizes: '72x72',
             type: 'image/png'
           },
           {
-            src: '/icons/icon-96x96.png',
+            src: '/icons/IMG_0477.PNG',
             sizes: '96x96',
             type: 'image/png'
           },
           {
-            src: '/icons/icon-128x128.png',
+            src: '/icons/IMG_0477.PNG',
             sizes: '128x128',
             type: 'image/png'
           },
           {
-            src: '/icons/icon-144x144.png',
+            src: '/icons/IMG_0477.PNG',
             sizes: '144x144',
             type: 'image/png'
           },
           {
-            src: '/icons/icon-152x152.png',
+            src: '/icons/IMG_0477.PNG',
             sizes: '152x152',
             type: 'image/png'
           },
           {
-            src: '/icons/icon-192x192.png',
+            src: '/icons/IMG_0477.PNG',
             sizes: '192x192',
             type: 'image/png'
           },
           {
-            src: '/icons/icon-384x384.png',
+            src: '/icons/IMG_0477.PNG',
             sizes: '384x384',
             type: 'image/png'
           },
           {
-            src: '/icons/icon-512x512.png',
+            src: '/icons/IMG_0477.PNG',
             sizes: '512x512',
             type: 'image/png'
           }

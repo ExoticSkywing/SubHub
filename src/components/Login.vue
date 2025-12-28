@@ -34,12 +34,12 @@ const submitLogin = async () => {
     <div class="bg-white/90 dark:bg-gray-900/80 backdrop-blur-xl card-shadow hover:card-shadow-hover rounded-3xl p-12 transition-all duration-300">
       <div class="flex flex-col items-center">
         <!-- 🆕 升级：动态Logo -->
-        <div class="w-20 h-20 mb-6 text-indigo-600 dark:text-indigo-400 transform hover:scale-110 transition-transform duration-300">
-           <svg width="80" height="80" viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg" fill="currentColor" class="drop-shadow-lg">
-              <path d="M64 128a64 64 0 1 1 64-64a64.07 64.07 0 0 1-64 64Zm0-122a58 58 0 1 0 58 58A58.07 58.07 0 0 0 64 6Z"/>
-              <path d="M64 100a36 36 0 1 1 36-36a36 36 0 0 1-36 36Zm0-66a30 30 0 1 0 30 30a30 30 0 0 0-30-30Z"/>
-              <path d="M64 78a14 14 0 1 1 14-14a14 14 0 0 1-14 14Zm0-22a8 8 0 1 0 8 8a8 8 0 0 0-8-8Z"/>
-          </svg>
+        <div class="w-20 h-20 mb-6 transform hover:scale-110 transition-transform duration-300">
+          <img
+            src="/icons/IMG_0477.PNG"
+            alt="MiSub Logo"
+            class="w-20 h-20 drop-shadow-lg object-contain"
+          />
         </div>
         <h1 class="text-4xl font-bold bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent mb-2">SUBHUB</h1>
         <p class="text-gray-600 dark:text-gray-400 font-medium">请输入管理员密码以继续</p>
