@@ -2013,7 +2013,7 @@ async function handleApiRequest(request, env) {
                 }
                 
                 try {
-                    const { profileId, count, duration } = await request.json();
+                    const { profileId, count, duration, remark } = await request.json();
                     const config = getConfig();
                     
                     // 参数验证
@@ -2021,6 +2021,14 @@ async function handleApiRequest(request, env) {
                         return new Response(JSON.stringify({ 
                             success: false, 
                             error: '缺少必需参数：profileId, count, duration' 
+                        }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+                    }
+
+                    // 备注长度校验（与用户备注保持一致，最多50个字符）
+                    if (remark && typeof remark === 'string' && remark.length > 50) {
+                        return new Response(JSON.stringify({
+                            success: false,
+                            error: '备注长度不能超过50个字符'
                         }), { status: 400, headers: { 'Content-Type': 'application/json' } });
                     }
                     
@@ -2084,6 +2092,10 @@ async function handleApiRequest(request, env) {
                                 rateLimitAttempts: 0      // 达到上限后的尝试次数
                             }
                         };
+
+                        if (remark && typeof remark === 'string') {
+                            userData.remark = remark;
+                        }
                         
                         // 存储到KV
                         await storageAdapter.put(`user:${userToken}`, userData);

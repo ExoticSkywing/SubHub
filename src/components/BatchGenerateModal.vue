@@ -10,6 +10,7 @@ const emit = defineEmits(['close', 'generate']);
 
 const count = ref(5);
 const duration = ref(30);
+const remark = ref('');
 const generating = ref(false);
 const generatedTokens = ref([]);
 const showResults = ref(false);
@@ -27,7 +28,8 @@ const handleGenerate = async () => {
       body: JSON.stringify({
         profileId: profileId.value,
         count: count.value,
-        duration: duration.value
+        duration: duration.value,
+        remark: remark.value || ''
       })
     });
     
@@ -91,6 +93,7 @@ const handleClose = () => {
   showResults.value = false;
   count.value = 5;
   duration.value = 30;
+  remark.value = '';
   emit('close');
 };
 </script>
@@ -148,6 +151,20 @@ const handleClose = () => {
                 placeholder="请输入有效期"
               />
               <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">常用：1天测试、30天月付、365天年付</p>
+            </div>
+
+            <div>
+              <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                备注（可选）
+              </label>
+              <input
+                v-model="remark"
+                type="text"
+                maxlength="50"
+                class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 dark:bg-gray-700 dark:text-white"
+                placeholder="例如：渠道、活动名称、用途说明（最多50字）"
+              />
+              <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">该备注将写入每个新生成用户的备注字段。</p>
             </div>
           </div>
 
