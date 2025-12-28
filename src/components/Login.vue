@@ -42,7 +42,7 @@ const submitLogin = async () => {
           />
         </div>
         <h1 class="text-4xl font-bold bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent mb-2">SUBHUB</h1>
-        <p class="text-gray-600 dark:text-gray-400 font-medium">请输入管理员密码以继续</p>
+        <p class="text-gray-600 dark:text-gray-400 font-medium">助力AI赋能，释放创造力与生产力</p>
       </div>
 
       <form @submit.prevent="submitLogin" class="mt-10 space-y-8">
@@ -59,7 +59,7 @@ const submitLogin = async () => {
             autocomplete="current-password" 
             required 
             class="w-full pl-12 pr-4 py-4 bg-gray-100/90 dark:bg-gray-800/90 backdrop-blur-sm rounded-xl focus:outline-none dark:text-white transition-all duration-200 placeholder:text-gray-400" 
-            placeholder="请输入管理员密码"
+            placeholder="请输入通行证口令"
           >
         </div>
         
