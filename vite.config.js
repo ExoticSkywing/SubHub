@@ -32,8 +32,8 @@ export default defineConfig({
       },
       includeAssets: ['favicon.ico', 'robots.txt', 'icons/*.png'],
       manifest: {
-        name: 'MiSub - 订阅转换器',
-        short_name: 'MiSub',
+        name: 'SUBHUB - 订阅转换器',
+        short_name: 'SUBHUB',
         description: '基于 Cloudflare 的订阅转换和管理工具',
         theme_color: '#4f46e5',
         background_color: '#0f172a',

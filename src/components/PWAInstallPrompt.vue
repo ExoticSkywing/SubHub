@@ -69,7 +69,7 @@ const installPWA = async () => {
     const { outcome } = await deferredPrompt.value.userChoice;
     
     if (outcome === 'accepted') {
-      showToast('应用安装成功！您可以在桌面或主屏幕找到MiSub', 'success');
+      showToast('应用安装成功！您可以在桌面或主屏幕找到 SUBHUB', 'success');
       canInstall.value = false;
       isInstalled.value = true;
       // 标记已安装到localStorage
@@ -92,7 +92,7 @@ const showInstallGuide = () => {
   let guide = '';
   
   if (userAgent.includes('chrome') && !userAgent.includes('edge')) {
-    guide = 'Chrome：点击地址栏右侧的安装图标，或者菜单 → "安装MiSub..."';
+    guide = 'Chrome：点击地址栏右侧的安装图标，或者菜单 → "安装 SUBHUB..."';
   } else if (userAgent.includes('edge')) {
     guide = 'Edge：点击地址栏右侧的应用图标，或者菜单 → "应用" → "安装此站点为应用"';
   } else if (userAgent.includes('safari')) {
@@ -153,7 +153,7 @@ onMounted(() => {
     
     // 显示友好提示
     setTimeout(() => {
-      showToast('发现您可以安装MiSub到桌面，获得更好的使用体验！', 'info', 6000);
+      showToast('发现您可以安装 SUBHUB 到桌面，获得更好的使用体验！', 'info', 6000);
     }, 3000);
   });
   
@@ -163,7 +163,7 @@ onMounted(() => {
     canInstall.value = false;
     isInstalled.value = true;
     localStorage.setItem('pwa-installed', 'true');
-    showToast('MiSub已成功安装！', 'success');
+    showToast('SUBHUB 已成功安装！', 'success');
   });
   
   // 监听显示模式变化（安装后会触发）
@@ -222,7 +222,7 @@ onMounted(() => {
             <!-- 消息内容 -->
             <div class="flex-1 min-w-0">
               <p class="text-sm font-medium text-white">
-                安装MiSub到桌面
+                安装 SUBHUB 到桌面
               </p>
               <p class="text-xs text-white/80 mt-1">
                 获得更快速的访问体验

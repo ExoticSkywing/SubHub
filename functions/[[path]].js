@@ -239,7 +239,7 @@ function migrateConfigSettings(config) {
 
 // --- [新] 默认设置中增加通知阈值和存储类型 ---
 const defaultSettings = {
-  FileName: 'MiSub',
+  FileName: 'SUBHUB',
   mytoken: 'auto',
   profileToken: 'profiles',
   adminKey: '', // 管理员密钥，用于访问二段式订阅链接
@@ -1592,7 +1592,7 @@ async function handleApiRequest(request, env) {
                     storageAdapter.get(KV_KEY_SETTINGS).then(res => res || {})
                 ]);
                 const config = {
-                    FileName: settings.FileName || 'MISUB',
+                    FileName: settings.FileName || 'SUBHUB',
                     mytoken: settings.mytoken || 'auto',
                     profileToken: settings.profileToken || 'profiles'
                 };

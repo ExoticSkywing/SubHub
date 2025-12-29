@@ -21,7 +21,7 @@ export function useBackup() {
       const a = document.createElement('a');
       a.href = url;
       const timestamp = new Date().toISOString().slice(0, 19).replace('T', '_').replace(/:/g, '-');
-      a.download = `misub-backup-${timestamp}.json`;
+      a.download = `subhub-backup-${timestamp}.json`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);

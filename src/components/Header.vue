@@ -35,7 +35,7 @@ const showMobileMenu = ref(false);
           <div class="flex items-center">
             <img
               src="/icons/IMG_0477.PNG"
-              alt="MiSub Logo"
+              alt="SUBHUB Logo"
               class="w-8 h-8 object-contain drop-shadow-sm"
             />
             <span class="ml-3 text-xl font-bold text-gray-800 dark:text-white">SUBHUB</span>

@@ -1,6 +1,6 @@
 {
-  "name": "MiSub - 订阅转换器",
-  "short_name": "MiSub",
+  "name": "SUBHUB - 订阅转换器",
+  "short_name": "SUBHUB",
   "description": "基于 Cloudflare 的订阅转换和管理工具",
   "start_url": "/",
   "display": "standalone",
@@ -110,14 +110,14 @@
       "sizes": "1280x720",
       "type": "image/png",
       "form_factor": "wide",
-      "label": "MiSub 桌面版截图"
+      "label": "SUBHUB 桌面版截图"
     },
     {
       "src": "/screenshots/mobile.png",
       "sizes": "390x844",
       "type": "image/png",
       "form_factor": "narrow",
-      "label": "MiSub 移动版截图"
+      "label": "SUBHUB 移动版截图"
     }
   ],
   "prefer_related_applications": false

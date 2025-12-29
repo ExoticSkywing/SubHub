@@ -37,7 +37,7 @@ const submitLogin = async () => {
         <div class="w-20 h-20 mb-6 transform hover:scale-110 transition-transform duration-300">
           <img
             src="/icons/IMG_0477.PNG"
-            alt="MiSub Logo"
+            alt="SUBHUB Logo"
             class="w-20 h-20 drop-shadow-lg object-contain"
           />
         </div>
