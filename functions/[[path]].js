@@ -2527,6 +2527,7 @@ function determineTargetFormat(url, userAgent, effectiveSubConfig = null) {
         const ua = userAgent.toLowerCase();
         const uaMapping = [
             ['flyclash', 'clash'],
+            ['openclash', 'clash'],
             ['mihomo', 'clash'],
             ['clash.meta', 'clash'],
             ['clash-verge', 'clash'],
@@ -3745,7 +3746,7 @@ async function performAntiShareCheck(userToken, userData, request, env, config, 
     };
 }
 
-const proxyClientKeywords = ['shadowrocket', 'quantumult', 'surge', 'loon', 'clash', 'stash', 'pharos', 
+const proxyClientKeywords = ['shadowrocket', 'quantumult', 'surge', 'loon', 'clash', 'openclash', 'stash', 'pharos', 
                              'v2rayn', 'v2rayng', 'kitsunebi', 'i2ray', 'pepi', 'potatso', 'netch',
                              'qv2ray', 'mellow', 'trojan', 'shadowsocks', 'surfboard', 'sing-box', 'singbox', 'nekobox'];
 
