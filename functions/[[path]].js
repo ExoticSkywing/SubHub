@@ -38,6 +38,15 @@ const KV_KEY_SETTINGS = 'worker_settings_v1';
 const COOKIE_NAME = 'auth_session';
 const DEFAULT_SESSION_DURATION_MS = 30 * 24 * 60 * 60 * 1000;
 
+// 登录暴力破解防护配置
+const LOGIN_RATE_LIMIT = {
+    MAX_ATTEMPTS: 5,                        // 最大失败次数
+    LOCKOUT_DURATION_MS: 15 * 60 * 1000,    // 封禁时长：15分钟
+    NOTIFY_ON_LOCKOUT: true                 // 封禁时发送 Telegram 通知
+};
+const KV_KEY_LOGIN_ATTEMPTS = 'login_attempts:';  // KV 存储前缀
+
+
 function getSessionDurationMs(env) {
     const msRaw = env.ADMIN_SESSION_DURATION_MS;
     if (msRaw !== undefined && msRaw !== null && msRaw !== '') {
@@ -212,7 +221,7 @@ async function getStorageAdapter(env) {
  */
 function migrateConfigSettings(config) {
     const migratedConfig = { ...config };
-    
+
     // 如果没有新的 prefixConfig，但有老的 prependSubName，则创建默认的 prefixConfig
     if (!migratedConfig.prefixConfig) {
         const fallbackEnabled = migratedConfig.prependSubName ?? true;
@@ -222,7 +231,7 @@ function migrateConfigSettings(config) {
             manualNodePrefix: '手动节点'
         };
     }
-    
+
     // 确保 prefixConfig 的所有字段都存在
     if (!migratedConfig.prefixConfig.hasOwnProperty('enableManualNodes')) {
         migratedConfig.prefixConfig.enableManualNodes = migratedConfig.prependSubName ?? true;
@@ -233,110 +242,110 @@ function migrateConfigSettings(config) {
     if (!migratedConfig.prefixConfig.hasOwnProperty('manualNodePrefix')) {
         migratedConfig.prefixConfig.manualNodePrefix = '手动节点';
     }
-    
+
     return migratedConfig;
 }
 
 // --- [新] 默认设置中增加通知阈值和存储类型 ---
 const defaultSettings = {
-  FileName: 'SUBHUB',
-  mytoken: 'auto',
-  profileToken: 'profiles',
-  adminKey: '', // 管理员密钥，用于访问二段式订阅链接
-  subConverter: 'url.v1.mk',
-  subConfig: 'https://raw.githubusercontent.com/cmliu/ACL4SSR/refs/heads/main/Clash/config/ACL4SSR_Online_Full.ini',
-  prependSubName: true, // 保持向后兼容
-  prefixConfig: {
-    enableManualNodes: true,    // 手动节点前缀开关
-    enableSubscriptions: true,  // 机场订阅前缀开关
-    manualNodePrefix: '手动节点', // 手动节点前缀文本
-  },
-  NotifyThresholdDays: 3,
-  NotifyThresholdPercent: 90,
-  storageType: 'kv', // 数据存储类型，默认 KV，可选 'd1'
-  IPGeoAPIKey: '', // ipgeolocation.io API Key（最精准，1000次/天）
-  IPDataAPIKey: '' // ipdata.co API Key（准确，1500次/天）
+    FileName: 'SUBHUB',
+    mytoken: 'auto',
+    profileToken: 'profiles',
+    adminKey: '', // 管理员密钥，用于访问二段式订阅链接
+    subConverter: 'url.v1.mk',
+    subConfig: 'https://raw.githubusercontent.com/cmliu/ACL4SSR/refs/heads/main/Clash/config/ACL4SSR_Online_Full.ini',
+    prependSubName: true, // 保持向后兼容
+    prefixConfig: {
+        enableManualNodes: true,    // 手动节点前缀开关
+        enableSubscriptions: true,  // 机场订阅前缀开关
+        manualNodePrefix: '手动节点', // 手动节点前缀文本
+    },
+    NotifyThresholdDays: 3,
+    NotifyThresholdPercent: 90,
+    storageType: 'kv', // 数据存储类型，默认 KV，可选 'd1'
+    IPGeoAPIKey: '', // ipgeolocation.io API Key（最精准，1000次/天）
+    IPDataAPIKey: '' // ipdata.co API Key（准确，1500次/天）
 };
 
 const formatBytes = (bytes, decimals = 2) => {
-  if (!+bytes || bytes < 0) return '0 B';
-  const k = 1024;
-  const dm = decimals < 0 ? 0 : decimals;
-  const sizes = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
-  // toFixed(dm) after dividing by pow(k, i) was producing large decimal numbers
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  if (i < 0) return '0 B'; // Handle log(0) case
-  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`;
+    if (!+bytes || bytes < 0) return '0 B';
+    const k = 1024;
+    const dm = decimals < 0 ? 0 : decimals;
+    const sizes = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
+    // toFixed(dm) after dividing by pow(k, i) was producing large decimal numbers
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    if (i < 0) return '0 B'; // Handle log(0) case
+    return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`;
 };
 
 // 将流量字符串转换为字节数（例如 "10GB" -> 10737418240）
 const parseBandwidthToBytes = (bandwidthStr) => {
-  if (!bandwidthStr || typeof bandwidthStr !== 'string') {
-    return 10737418240; // 默认 10GB
-  }
-  
-  const str = bandwidthStr.trim().toUpperCase();
-  // 支持 G、GB、T、TB 等简写和全写
-  const match = str.match(/^([\d.]+)\s*([KMGTPB]+)?$/);
-  
-  if (!match) {
-    return 10737418240; // 默认 10GB
-  }
-  
-  const value = parseFloat(match[1]);
-  let unit = (match[2] || 'B').toUpperCase();
-  const k = 1024;
-  
-  // 规范化单位（处理 G -> GB, T -> TB 等）
-  const unitMap = {
-    'B': 1,
-    'K': k,
-    'KB': k,
-    'M': k * k,
-    'MB': k * k,
-    'G': k * k * k,
-    'GB': k * k * k,
-    'T': k * k * k * k,
-    'TB': k * k * k * k,
-    'P': k * k * k * k * k,
-    'PB': k * k * k * k * k
-  };
-  
-  return Math.floor(value * (unitMap[unit] || 1));
+    if (!bandwidthStr || typeof bandwidthStr !== 'string') {
+        return 10737418240; // 默认 10GB
+    }
+
+    const str = bandwidthStr.trim().toUpperCase();
+    // 支持 G、GB、T、TB 等简写和全写
+    const match = str.match(/^([\d.]+)\s*([KMGTPB]+)?$/);
+
+    if (!match) {
+        return 10737418240; // 默认 10GB
+    }
+
+    const value = parseFloat(match[1]);
+    let unit = (match[2] || 'B').toUpperCase();
+    const k = 1024;
+
+    // 规范化单位（处理 G -> GB, T -> TB 等）
+    const unitMap = {
+        'B': 1,
+        'K': k,
+        'KB': k,
+        'M': k * k,
+        'MB': k * k,
+        'G': k * k * k,
+        'GB': k * k * k,
+        'T': k * k * k * k,
+        'TB': k * k * k * k,
+        'P': k * k * k * k * k,
+        'PB': k * k * k * k * k
+    };
+
+    return Math.floor(value * (unitMap[unit] || 1));
 };
 
 // --- TG 通知函式 (无修改) ---
 async function sendTgNotification(settings, message) {
-  if (!settings.BotToken || !settings.ChatID) {
-    return false;
-  }
-  
-  // 为所有消息添加时间戳
-  const now = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
-  const fullMessage = `${message}\n\n*时间:* \`${now} (UTC+8)\``;
-  
-  const url = `https://api.telegram.org/bot${settings.BotToken}/sendMessage`;
-  const payload = { 
-    chat_id: settings.ChatID, 
-    text: fullMessage, 
-    parse_mode: 'Markdown',
-    disable_web_page_preview: true // 禁用链接预览，使消息更紧凑
-  };
-  
-  try {
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    });
-    if (response.ok) {
-      return true;
-    } else {
-      return false;
+    if (!settings.BotToken || !settings.ChatID) {
+        return false;
     }
-  } catch (error) {
-    return false;
-  }
+
+    // 为所有消息添加时间戳
+    const now = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
+    const fullMessage = `${message}\n\n*时间:* \`${now} (UTC+8)\``;
+
+    const url = `https://api.telegram.org/bot${settings.BotToken}/sendMessage`;
+    const payload = {
+        chat_id: settings.ChatID,
+        text: fullMessage,
+        parse_mode: 'Markdown',
+        disable_web_page_preview: true // 禁用链接预览，使消息更紧凑
+    };
+
+    try {
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        if (response.ok) {
+            return true;
+        } else {
+            return false;
+        }
+    } catch (error) {
+        return false;
+    }
 }
 
 /**
@@ -345,12 +354,12 @@ async function sendTgNotification(settings, message) {
  * @returns {string} - 国旗 emoji（如 🇨🇳, 🇺🇸, 🇯🇵）
  */
 function getCountryEmoji(countryCode) {
-  if (!countryCode || countryCode.length !== 2) return '';
-  const codePoints = countryCode
-    .toUpperCase()
-    .split('')
-    .map(char => 127397 + char.charCodeAt());
-  return String.fromCodePoint(...codePoints);
+    if (!countryCode || countryCode.length !== 2) return '';
+    const codePoints = countryCode
+        .toUpperCase()
+        .split('')
+        .map(char => 127397 + char.charCodeAt());
+    return String.fromCodePoint(...codePoints);
 }
 
 /**
@@ -359,13 +368,13 @@ function getCountryEmoji(countryCode) {
  * @returns {string} - 随机Token
  */
 function generateRandomToken(length) {
-  const config = getConfig();
-  const charset = config.batchGenerate.TOKEN_CHARSET;
-  let token = '';
-  for (let i = 0; i < length; i++) {
-    token += charset[Math.floor(Math.random() * charset.length)];
-  }
-  return token;
+    const config = getConfig();
+    const charset = config.batchGenerate.TOKEN_CHARSET;
+    let token = '';
+    for (let i = 0; i < length; i++) {
+        token += charset[Math.floor(Math.random() * charset.length)];
+    }
+    return token;
 }
 
 /**
@@ -375,21 +384,21 @@ function generateRandomToken(length) {
  * @returns {Promise<string>} - 唯一Token
  */
 async function generateUniqueUserToken(env, length) {
-  let token;
-  let attempts = 0;
-  const maxAttempts = 100;
-  
-  do {
-    token = generateRandomToken(length);
-    const storageAdapter = await getStorageAdapter(env);
-    const exists = await storageAdapter.get(`user:${token}`);
-    if (!exists) {
-      return token;
-    }
-    attempts++;
-  } while (attempts < maxAttempts);
-  
-  throw new Error('无法生成唯一Token，请稍后重试');
+    let token;
+    let attempts = 0;
+    const maxAttempts = 100;
+
+    do {
+        token = generateRandomToken(length);
+        const storageAdapter = await getStorageAdapter(env);
+        const exists = await storageAdapter.get(`user:${token}`);
+        if (!exists) {
+            return token;
+        }
+        attempts++;
+    } while (attempts < maxAttempts);
+
+    throw new Error('无法生成唯一Token，请稍后重试');
 }
 
 /**
@@ -402,176 +411,176 @@ async function generateUniqueUserToken(env, length) {
  * @returns {Promise<boolean>} - 是否发送成功
  */
 async function sendEnhancedTgNotification(settings, type, request, additionalData = '', cityFromCaller = null) {
-  if (!settings.BotToken || !settings.ChatID) {
-    return false;
-  }
-  
-  // 使用与 performAntiShareCheck 相同的 IP 获取逻辑（多层降级）
-  const clientIp = request.headers.get('CF-Connecting-IP') 
-    || request.headers.get('X-Forwarded-For')?.split(',')[0]?.trim()
-    || request.headers.get('X-Real-IP')
-    || 'N/A';
-  let locationInfo = '';
-  let geoSource = 'unknown';
-  
-  // 【复用】如果调用方已经获取了城市信息，直接使用，不重复调用 API
-  if (cityFromCaller) {
-    locationInfo = `
+    if (!settings.BotToken || !settings.ChatID) {
+        return false;
+    }
+
+    // 使用与 performAntiShareCheck 相同的 IP 获取逻辑（多层降级）
+    const clientIp = request.headers.get('CF-Connecting-IP')
+        || request.headers.get('X-Forwarded-For')?.split(',')[0]?.trim()
+        || request.headers.get('X-Real-IP')
+        || 'N/A';
+    let locationInfo = '';
+    let geoSource = 'unknown';
+
+    // 【复用】如果调用方已经获取了城市信息，直接使用，不重复调用 API
+    if (cityFromCaller) {
+        locationInfo = `
 *城市:* \`${cityFromCaller}\``;
-    geoSource = 'reused from caller';
-  } else {
-    // 只有在没有传入城市信息时才调用 GeoIP API
-  
-  // 读取配置化的API优先级
-  const asyncConfig = getConfig();
-  const apiPriority = asyncConfig.geoip.API_PRIORITY;
-  const apiTimeout = asyncConfig.geoip.API_TIMEOUT_MS;
-  
-  // API调用函数映射表
-  const apiHandlers = {
-    'ipdata.co': async () => {
-      if (!settings.IPDataAPIKey) return null;
-      const response = await fetch(
-        `https://api.ipdata.co/${clientIp}?api-key=${settings.IPDataAPIKey}`,
-        { signal: AbortSignal.timeout(apiTimeout) }
-      );
-      if (!response.ok) return null;
-      const data = await response.json();
-      if (!data.country_name) return null;
-      
-      const countryEmoji = data.emoji_flag || getCountryEmoji(data.country_code) || '';
-      return {
-        info: `
+        geoSource = 'reused from caller';
+    } else {
+        // 只有在没有传入城市信息时才调用 GeoIP API
+
+        // 读取配置化的API优先级
+        const asyncConfig = getConfig();
+        const apiPriority = asyncConfig.geoip.API_PRIORITY;
+        const apiTimeout = asyncConfig.geoip.API_TIMEOUT_MS;
+
+        // API调用函数映射表
+        const apiHandlers = {
+            'ipdata.co': async () => {
+                if (!settings.IPDataAPIKey) return null;
+                const response = await fetch(
+                    `https://api.ipdata.co/${clientIp}?api-key=${settings.IPDataAPIKey}`,
+                    { signal: AbortSignal.timeout(apiTimeout) }
+                );
+                if (!response.ok) return null;
+                const data = await response.json();
+                if (!data.country_name) return null;
+
+                const countryEmoji = data.emoji_flag || getCountryEmoji(data.country_code) || '';
+                return {
+                    info: `
 *国家:* ${countryEmoji} \`${data.country_name || 'N/A'}\`
 *城市:* \`${data.city || 'N/A'}\`
 *ISP:* \`${data.asn?.name || 'N/A'}\`
 *ASN:* \`${data.asn?.asn || 'N/A'}\``,
-        source: 'ipdata.co'
-      };
-    },
-    
-    'ipwhois.io': async () => {
-      const response = await fetch(
-        `https://ipwhois.app/json/${clientIp}?lang=zh-CN`,
-        { signal: AbortSignal.timeout(apiTimeout) }
-      );
-      if (!response.ok) return null;
-      const data = await response.json();
-      if (data.success === false || !data.country) return null;
-      
-      const countryEmoji = getCountryEmoji(data.country_code) || '';
-      return {
-        info: `
+                    source: 'ipdata.co'
+                };
+            },
+
+            'ipwhois.io': async () => {
+                const response = await fetch(
+                    `https://ipwhois.app/json/${clientIp}?lang=zh-CN`,
+                    { signal: AbortSignal.timeout(apiTimeout) }
+                );
+                if (!response.ok) return null;
+                const data = await response.json();
+                if (data.success === false || !data.country) return null;
+
+                const countryEmoji = getCountryEmoji(data.country_code) || '';
+                return {
+                    info: `
 *国家:* ${countryEmoji} \`${data.country || 'N/A'}\`
 *城市:* \`${data.city || 'N/A'}\`
 *ISP:* \`${data.isp || 'N/A'}\`
 *ASN:* \`AS${data.asn || 'N/A'}\``,
-        source: 'ipwhois.io'
-      };
-    },
-    
-    'ip-api.com': async () => {
-      const response = await fetch(
-        `http://ip-api.com/json/${clientIp}?lang=zh-CN`,
-        { signal: AbortSignal.timeout(apiTimeout) }
-      );
-      if (!response.ok) return null;
-      const data = await response.json();
-      if (data.status !== 'success') return null;
-      
-      const countryEmoji = getCountryEmoji(data.countryCode) || '';
-      return {
-        info: `
+                    source: 'ipwhois.io'
+                };
+            },
+
+            'ip-api.com': async () => {
+                const response = await fetch(
+                    `http://ip-api.com/json/${clientIp}?lang=zh-CN`,
+                    { signal: AbortSignal.timeout(apiTimeout) }
+                );
+                if (!response.ok) return null;
+                const data = await response.json();
+                if (data.status !== 'success') return null;
+
+                const countryEmoji = getCountryEmoji(data.countryCode) || '';
+                return {
+                    info: `
 *国家:* ${countryEmoji} \`${data.country || 'N/A'}\`
 *城市:* \`${data.city || 'N/A'}\`
 *ISP:* \`${data.org || 'N/A'}\`
 *ASN:* \`${data.as || 'N/A'}\``,
-        source: 'ip-api.com'
-      };
-    },
-    
-    'ipgeolocation.io': async () => {
-      if (!settings.IPGeoAPIKey) return null;
-      const response = await fetch(
-        `https://api.ipgeolocation.io/ipgeo?apiKey=${settings.IPGeoAPIKey}&ip=${clientIp}`,
-        { signal: AbortSignal.timeout(apiTimeout) }
-      );
-      if (!response.ok) return null;
-      const data = await response.json();
-      if (!data.country_name) return null;
-      
-      const countryEmoji = data.country_emoji || '';
-      const district = data.district || '';
-      let info = `
+                    source: 'ip-api.com'
+                };
+            },
+
+            'ipgeolocation.io': async () => {
+                if (!settings.IPGeoAPIKey) return null;
+                const response = await fetch(
+                    `https://api.ipgeolocation.io/ipgeo?apiKey=${settings.IPGeoAPIKey}&ip=${clientIp}`,
+                    { signal: AbortSignal.timeout(apiTimeout) }
+                );
+                if (!response.ok) return null;
+                const data = await response.json();
+                if (!data.country_name) return null;
+
+                const countryEmoji = data.country_emoji || '';
+                const district = data.district || '';
+                let info = `
 *国家:* ${countryEmoji} \`${data.country_name || 'N/A'}\`
 *城市:* \`${data.city || 'N/A'}\``;
-      
-      if (district) {
-        info += `
+
+                if (district) {
+                    info += `
 *街道:* \`${district}\``;
-      }
-      
-      const isp = data.organization || data.isp || 'N/A';
-      const asn = data.asn || data.connection?.asn || data.as || 'N/A';
-      info += `
+                }
+
+                const isp = data.organization || data.isp || 'N/A';
+                const asn = data.asn || data.connection?.asn || data.as || 'N/A';
+                info += `
 *ISP:* \`${isp}\`
 *ASN:* \`${asn}\``;
-      
-      return {
-        info,
-        source: 'ipgeolocation.io'
-      };
-    },
-    
-    'cloudflare': async () => {
-      if (!request.cf) return null;
-      const cf = request.cf;
-      const countryEmoji = getCountryEmoji(cf.country) || '';
-      return {
-        info: `
+
+                return {
+                    info,
+                    source: 'ipgeolocation.io'
+                };
+            },
+
+            'cloudflare': async () => {
+                if (!request.cf) return null;
+                const cf = request.cf;
+                const countryEmoji = getCountryEmoji(cf.country) || '';
+                return {
+                    info: `
 *国家:* ${countryEmoji} \`${cf.country || 'N/A'}\`
 *城市:* \`${cf.city || 'N/A'}\` ⚠️
 *ISP:* \`${cf.asOrganization || 'N/A'}\`
 *ASN:* \`AS${cf.asn || 'N/A'}\``,
-        source: 'Cloudflare (城市可能不准)'
-      };
-    }
-  };
-  
-  // 按配置的优先级依次尝试API
-  for (const apiName of apiPriority) {
-    if (locationInfo) break; // 已获取到信息，停止尝试
-    
-    const handler = apiHandlers[apiName];
-    if (!handler) {
-      console.warn(`[GeoIP] Unknown API: ${apiName}`);
-      continue;
-    }
-    
-    try {
-      const result = await handler();
-      if (result) {
-        locationInfo = result.info;
-        geoSource = result.source;
-        console.log(`[GeoIP] Success: ${geoSource}`);
-        break;
-      }
-    } catch (error) {
-      console.log(`[GeoIP] ${apiName} failed:`, error.message);
-      // 继续尝试下一个API
-    }
-  }
-  
-  // 如果所有API都失败，返回失败提示
-  if (!locationInfo) {
-    locationInfo = '\n*地理信息:* 获取失败';
-    geoSource = 'failed';
-  }
-  } // 关闭 else 块
-  
-  // 构建完整消息
-  const now = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
-  const message = `${type}
+                    source: 'Cloudflare (城市可能不准)'
+                };
+            }
+        };
+
+        // 按配置的优先级依次尝试API
+        for (const apiName of apiPriority) {
+            if (locationInfo) break; // 已获取到信息，停止尝试
+
+            const handler = apiHandlers[apiName];
+            if (!handler) {
+                console.warn(`[GeoIP] Unknown API: ${apiName}`);
+                continue;
+            }
+
+            try {
+                const result = await handler();
+                if (result) {
+                    locationInfo = result.info;
+                    geoSource = result.source;
+                    console.log(`[GeoIP] Success: ${geoSource}`);
+                    break;
+                }
+            } catch (error) {
+                console.log(`[GeoIP] ${apiName} failed:`, error.message);
+                // 继续尝试下一个API
+            }
+        }
+
+        // 如果所有API都失败，返回失败提示
+        if (!locationInfo) {
+            locationInfo = '\n*地理信息:* 获取失败';
+            geoSource = 'failed';
+        }
+    } // 关闭 else 块
+
+    // 构建完整消息
+    const now = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
+    const message = `${type}
 
 *IP 地址:* \`${clientIp}\`${locationInfo}
 *数据来源:* \`${geoSource}\`
@@ -579,29 +588,29 @@ async function sendEnhancedTgNotification(settings, type, request, additionalDat
 ${additionalData}
 
 *时间:* \`${now} (UTC+8)\``;
-  
-  const url = `https://api.telegram.org/bot${settings.BotToken}/sendMessage`;
-  const payload = { 
-    chat_id: settings.ChatID, 
-    text: message, 
-    parse_mode: 'Markdown',
-    disable_web_page_preview: true
-  };
-  
-  try {
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    });
-    if (response.ok) {
-      return true;
-    } else {
-      return false;
+
+    const url = `https://api.telegram.org/bot${settings.BotToken}/sendMessage`;
+    const payload = {
+        chat_id: settings.ChatID,
+        text: message,
+        parse_mode: 'Markdown',
+        disable_web_page_preview: true
+    };
+
+    try {
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        if (response.ok) {
+            return true;
+        } else {
+            return false;
+        }
+    } catch (error) {
+        return false;
     }
-  } catch (error) {
-    return false;
-  }
 }
 
 async function handleCronTrigger(env) {
@@ -617,20 +626,20 @@ async function handleCronTrigger(env) {
         if (sub.url.startsWith('http') && sub.enabled) {
             try {
                 // --- 並行請求流量和節點內容 ---
-                const trafficRequest = fetch(new Request(sub.url, { 
-                    headers: { 'User-Agent': 'Clash for Windows/0.20.39' }, 
+                const trafficRequest = fetch(new Request(sub.url, {
+                    headers: { 'User-Agent': 'Clash for Windows/0.20.39' },
                     redirect: "follow",
-                    cf: { insecureSkipVerify: true } 
+                    cf: { insecureSkipVerify: true }
                 }));
-                const nodeCountRequest = fetch(new Request(sub.url, { 
-                    headers: { 'User-Agent': 'MiSub-Cron-Updater/1.0' }, 
+                const nodeCountRequest = fetch(new Request(sub.url, {
+                    headers: { 'User-Agent': 'MiSub-Cron-Updater/1.0' },
                     redirect: "follow",
-                    cf: { insecureSkipVerify: true } 
+                    cf: { insecureSkipVerify: true }
                 }));
                 const [trafficResult, nodeCountResult] = await Promise.allSettled([
                     Promise.race([trafficRequest, new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 8000))]),
                     Promise.race([nodeCountRequest, new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 8000))])
-                ]);   
+                ]);
 
                 if (trafficResult.status === 'fulfilled' && trafficResult.value.ok) {
                     const userInfoHeader = trafficResult.value.headers.get('subscription-userinfo');
@@ -645,17 +654,17 @@ async function handleCronTrigger(env) {
                         changesMade = true;
                     }
                 } else if (trafficResult.status === 'rejected') {
-                     // 流量请求失败
+                    // 流量请求失败
                 }
 
                 if (nodeCountResult.status === 'fulfilled' && nodeCountResult.value.ok) {
                     const text = await nodeCountResult.value.text();
                     let decoded = '';
-                    try { 
+                    try {
                         // 嘗試 Base64 解碼
-                        decoded = atob(text.replace(/\s/g, '')); 
-                    } catch { 
-                        decoded = text; 
+                        decoded = atob(text.replace(/\s/g, ''));
+                    } catch {
+                        decoded = text;
                     }
                     const matches = decoded.match(nodeRegex);
                     if (matches) {
@@ -666,7 +675,7 @@ async function handleCronTrigger(env) {
                     // 节点数量请求失败
                 }
 
-            } catch(e) {
+            } catch (e) {
                 // 请求处理出错
             }
         }
@@ -707,6 +716,107 @@ async function authMiddleware(request, env) {
     return verifiedData && (Date.now() - parseInt(verifiedData, 10) < sessionDurationMs);
 }
 
+// --- 登录暴力破解防护函数 ---
+
+/**
+ * 获取指定 IP 的登录失败记录
+ * @param {Object} env - Cloudflare 环境对象
+ * @param {string} ip - 客户端 IP 地址
+ * @returns {Promise<Object>} - 登录失败记录
+ */
+async function getLoginAttempts(env, ip) {
+    const key = KV_KEY_LOGIN_ATTEMPTS + ip;
+    try {
+        const data = await env.MISUB_KV.get(key, 'json');
+        return data || { count: 0, lastAttempt: 0, lockedUntil: 0 };
+    } catch (error) {
+        console.error('[Login Rate Limit] Failed to get attempts:', error);
+        return { count: 0, lastAttempt: 0, lockedUntil: 0 };
+    }
+}
+
+/**
+ * 记录登录失败
+ * @param {Object} env - Cloudflare 环境对象
+ * @param {string} ip - 客户端 IP 地址
+ * @returns {Promise<Object>} - 更新后的登录失败记录
+ */
+async function recordFailedLogin(env, ip) {
+    const key = KV_KEY_LOGIN_ATTEMPTS + ip;
+    const attempts = await getLoginAttempts(env, ip);
+
+    attempts.count += 1;
+    attempts.lastAttempt = Date.now();
+
+    if (attempts.count >= LOGIN_RATE_LIMIT.MAX_ATTEMPTS) {
+        attempts.lockedUntil = Date.now() + LOGIN_RATE_LIMIT.LOCKOUT_DURATION_MS;
+    }
+
+    try {
+        // 设置 TTL 为封禁时长 + 1 分钟，自动清理过期数据
+        await env.MISUB_KV.put(key, JSON.stringify(attempts), {
+            expirationTtl: Math.ceil(LOGIN_RATE_LIMIT.LOCKOUT_DURATION_MS / 1000) + 60
+        });
+    } catch (error) {
+        console.error('[Login Rate Limit] Failed to record attempt:', error);
+    }
+
+    return attempts;
+}
+
+/**
+ * 重置登录失败记录（登录成功时调用）
+ * @param {Object} env - Cloudflare 环境对象
+ * @param {string} ip - 客户端 IP 地址
+ */
+async function resetLoginAttempts(env, ip) {
+    const key = KV_KEY_LOGIN_ATTEMPTS + ip;
+    try {
+        await env.MISUB_KV.delete(key);
+    } catch (error) {
+        console.error('[Login Rate Limit] Failed to reset attempts:', error);
+    }
+}
+
+/**
+ * 发送登录封禁告警到 Telegram
+ * @param {Object} env - Cloudflare 环境对象
+ * @param {Request} request - 请求对象
+ * @param {string} ip - 被封禁的 IP
+ * @param {number} attemptCount - 失败尝试次数
+ */
+async function sendLoginLockoutNotification(env, request, ip, attemptCount) {
+    try {
+        const storageAdapter = await getStorageAdapter(env);
+        const settings = await storageAdapter.get(KV_KEY_SETTINGS) || {};
+
+        if (!settings.BotToken || !settings.ChatID) return;
+
+        const now = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
+        const lockoutMinutes = Math.ceil(LOGIN_RATE_LIMIT.LOCKOUT_DURATION_MS / 60000);
+        const message = `🚨 *管理员登录封禁告警* 🚨
+
+*IP 地址:* \`${ip}\`
+*失败次数:* \`${attemptCount} 次\`
+*封禁时长:* \`${lockoutMinutes} 分钟\`
+*时间:* \`${now} (UTC+8)\`
+
+⚠️ 该 IP 因多次登录失败已被暂时封禁`;
+
+        await fetch(`https://api.telegram.org/bot${settings.BotToken}/sendMessage`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                chat_id: settings.ChatID,
+                text: message,
+                parse_mode: 'Markdown'
+            })
+        });
+    } catch (error) {
+        console.error('[Login Lockout Notification Error]', error);
+    }
+}
+
 // sub: 要检查的订阅对象
 // settings: 全局设置
 // env: Cloudflare 环境
@@ -720,7 +830,7 @@ async function checkAndNotify(sub, settings, env) {
     if (sub.userInfo.expire) {
         const expiryDate = new Date(sub.userInfo.expire * 1000);
         const daysRemaining = Math.ceil((expiryDate - now) / ONE_DAY_MS);
-        
+
         // 检查是否满足通知条件：剩余天数 <= 阈值
         if (daysRemaining <= (settings.NotifyThresholdDays || 7)) {
             // 检查上次通知时间，防止24小时内重复通知
@@ -755,7 +865,7 @@ async function checkAndNotify(sub, settings, env) {
                     const i = Math.floor(Math.log(bytes) / Math.log(k));
                     return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`;
                 };
-                
+
                 const message = `📈 *流量预警提醒* 📈
 
 *订阅名称:* \`${sub.name || '未命名'}\`
@@ -827,7 +937,7 @@ async function handleApiRequest(request, env) {
             if (!oldData) {
                 return new Response(JSON.stringify({ success: false, message: '未找到需要迁移的旧数据。' }), { status: 404 });
             }
-            
+
             await env.MISUB_KV.put(KV_KEY_SUBS, JSON.stringify(oldData));
             await env.MISUB_KV.put(KV_KEY_PROFILES, JSON.stringify([]));
             await env.MISUB_KV.put(OLD_KV_KEY + '_migrated_on_' + new Date().toISOString(), JSON.stringify(oldData));
@@ -842,27 +952,67 @@ async function handleApiRequest(request, env) {
 
     if (path === '/login') {
         if (request.method !== 'POST') return new Response('Method Not Allowed', { status: 405 });
+
+        // 获取客户端 IP
+        const clientIp = request.headers.get('CF-Connecting-IP')
+            || request.headers.get('X-Forwarded-For')?.split(',')[0]?.trim()
+            || request.headers.get('X-Real-IP')
+            || 'unknown';
+
+        // 检查是否被封禁
+        const attempts = await getLoginAttempts(env, clientIp);
+        if (attempts.lockedUntil > Date.now()) {
+            const remainingMs = attempts.lockedUntil - Date.now();
+            const remainingMin = Math.ceil(remainingMs / 60000);
+            return new Response(JSON.stringify({
+                error: `登录已被暂时禁止，请在 ${remainingMin} 分钟后重试`,
+                lockedUntil: attempts.lockedUntil
+            }), { status: 429, headers: { 'Content-Type': 'application/json' } });
+        }
+
         try {
             const { password } = await request.json();
             if (password === env.ADMIN_PASSWORD) {
+                // 登录成功，重置失败计数
+                await resetLoginAttempts(env, clientIp);
+
                 const token = await createSignedToken(env.COOKIE_SECRET, String(Date.now()));
                 const sessionDurationMs = getSessionDurationMs(env);
                 const headers = new Headers({ 'Content-Type': 'application/json' });
                 headers.append('Set-Cookie', `${COOKIE_NAME}=${token}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=${sessionDurationMs / 1000}`);
                 return new Response(JSON.stringify({ success: true }), { headers });
             }
-            return new Response(JSON.stringify({ error: '密码错误' }), { status: 401 });
+
+            // 登录失败，记录失败次数
+            const updatedAttempts = await recordFailedLogin(env, clientIp);
+            const remaining = LOGIN_RATE_LIMIT.MAX_ATTEMPTS - updatedAttempts.count;
+
+            // 如果刚刚被封禁，发送 Telegram 通知
+            if (updatedAttempts.lockedUntil > Date.now() && LOGIN_RATE_LIMIT.NOTIFY_ON_LOCKOUT) {
+                // 异步发送通知，不阻塞响应
+                sendLoginLockoutNotification(env, request, clientIp, updatedAttempts.count);
+            }
+
+            const errorMsg = remaining > 0
+                ? `密码错误，还剩 ${remaining} 次尝试机会`
+                : `登录已被暂时禁止，请在 ${Math.ceil(LOGIN_RATE_LIMIT.LOCKOUT_DURATION_MS / 60000)} 分钟后重试`;
+
+            return new Response(JSON.stringify({ error: errorMsg }), {
+                status: remaining > 0 ? 401 : 429,
+                headers: { 'Content-Type': 'application/json' }
+            });
         } catch (e) {
             console.error('[API Error /login]', e);
             return new Response(JSON.stringify({ error: '请求体解析失败' }), { status: 400 });
         }
     }
+
     if (!await authMiddleware(request, env)) {
         return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 });
     }
 
     // ==================== 用户管理 API ====================
-    
+
     // GET /api/users - 用户列表（支持过滤、搜索、分页）
     if (path === '/users' && request.method === 'GET') {
         try {
@@ -872,16 +1022,16 @@ async function handleApiRequest(request, env) {
             const search = url.searchParams.get('search');
             const page = parseInt(url.searchParams.get('page')) || 0;
             const pageSize = parseInt(url.searchParams.get('pageSize')) || 20;
-            
+
             // 【修复】先加载 profiles（后面也需要用）
             const storageAdapter = await getStorageAdapter(env);
             const profiles = await storageAdapter.get(KV_KEY_PROFILES) || [];
-            
+
             // 如果传入了 profileId，先找到对应的 profile，获取 id 和 customId
             let profileIdToMatch = null;
             let profileCustomIdToMatch = null;
             if (profileIdParam) {
-                const targetProfile = profiles.find(p => 
+                const targetProfile = profiles.find(p =>
                     p.id === profileIdParam || (p.customId && p.customId === profileIdParam)
                 );
                 if (targetProfile) {
@@ -889,12 +1039,12 @@ async function handleApiRequest(request, env) {
                     profileCustomIdToMatch = targetProfile.customId;
                 }
             }
-            
+
             // 构建查询条件
             let query = 'SELECT token, data, created_at, updated_at FROM users';
             const conditions = [];
             const params = [];
-            
+
             if (profileIdToMatch) {
                 // 同时匹配 id 和 customId（兼容旧数据）
                 if (profileCustomIdToMatch) {
@@ -915,26 +1065,26 @@ async function handleApiRequest(request, env) {
                 conditions.push("(token LIKE ? OR json_extract(data, '$.userToken') LIKE ? OR json_extract(data, '$.remark') LIKE ?)");
                 params.push(`%${search}%`, `%${search}%`, `%${search}%`);
             }
-            
+
             // 记录 WHERE 子句的参数数量（用于 count 查询）
             const whereParamsCount = params.length;
-            
+
             if (conditions.length > 0) {
                 query += ' WHERE ' + conditions.join(' AND ');
             }
-            
+
             query += ' ORDER BY created_at DESC';
-            
+
             // 对于 expired 和 suspended 状态，不使用 LIMIT，后面在内存中过滤
             // 对于其他筛选，使用 LIMIT 提高性能
             if (!status || status === 'pending' || status === 'activated') {
                 query += ' LIMIT ? OFFSET ?';
                 params.push(pageSize, page * pageSize);
             }
-            
+
             // 查询用户
             const result = await env.MISUB_DB.prepare(query).bind(...params).all();
-            
+
             // profiles 已在前面加载，这里直接使用
             // 同时使用 id 和 customId 建立映射，以兼容旧数据
             const profileMap = new Map();
@@ -944,20 +1094,20 @@ async function handleApiRequest(request, env) {
                     profileMap.set(p.customId, p);
                 }
             });
-            
+
             // 组装数据
             const asyncConfig = getConfig();
             const now = Date.now();
-            
+
             // 获取全局的 profileToken（订阅组分享Token）
             const settings = await storageAdapter.get(KV_KEY_SETTINGS) || {};
             const globalProfileToken = settings.profileToken;
-            
+
             let users = result.results.map(row => {
                 const userData = JSON.parse(row.data);
                 const profile = profileMap.get(userData.profileId);
                 const effectiveAntiShareConfig = resolveAntiShareConfig(profile, userData, asyncConfig);
-                
+
                 // 计算唯一城市数量（从所有设备的城市列表中收集，与详情页保持一致）
                 const uniqueCities = new Set();
                 Object.values(userData.devices || {}).forEach(device => {
@@ -967,27 +1117,27 @@ async function handleApiRequest(request, env) {
                         });
                     }
                 });
-                
+
                 // 【修复】封禁状态判断：suspend 对象没有 status 字段，只需检查 until
                 const isSuspended = userData.suspend?.until && userData.suspend.until > now;
-                
+
                 // 【调试】检查 expiresAt 的值和类型
                 let isExpired = false;
                 if (userData.expiresAt) {
-                    const expiresAtTime = typeof userData.expiresAt === 'string' 
-                        ? new Date(userData.expiresAt).getTime() 
+                    const expiresAtTime = typeof userData.expiresAt === 'string'
+                        ? new Date(userData.expiresAt).getTime()
                         : userData.expiresAt;
                     isExpired = expiresAtTime < now;
                     console.log(`[DEBUG] Token: ${row.token}, expiresAt: ${userData.expiresAt}, expiresAtTime: ${expiresAtTime}, now: ${now}, isExpired: ${isExpired}`);
                 }
-                
+
                 // 生成订阅链接
                 // 使用全局的 profileToken（订阅组分享Token），profileId 可以是 customId 或真实 id
                 const profileIdForUrl = profile?.customId || userData.profileId;
-                const subscriptionUrl = globalProfileToken 
+                const subscriptionUrl = globalProfileToken
                     ? `${new URL(request.url).origin}/${globalProfileToken}/${profileIdForUrl}/${row.token}`
                     : null;
-                
+
                 return {
                     token: row.token,
                     profileId: userData.profileId,
@@ -1009,21 +1159,21 @@ async function handleApiRequest(request, env) {
                     subscriptionUrl
                 };
             });
-            
+
             // 【内存过滤】expired 和 suspended 状态
             if (status === 'expired') {
                 users = users.filter(user => user.isExpired);
             } else if (status === 'suspended') {
                 users = users.filter(user => user.isSuspended);
             }
-            
+
             // 分页处理（如果之前没有在 SQL 中分页）
             const totalBeforePaging = users.length;
             if (status === 'expired' || status === 'suspended') {
                 const startIndex = page * pageSize;
                 users = users.slice(startIndex, startIndex + pageSize);
             }
-            
+
             // 获取总数（用于分页）
             let total;
             if (status === 'expired' || status === 'suspended') {
@@ -1042,7 +1192,7 @@ async function handleApiRequest(request, env) {
                     .first();
                 total = countResult.total;
             }
-            
+
             return new Response(JSON.stringify({
                 success: true,
                 data: users,
@@ -1055,7 +1205,7 @@ async function handleApiRequest(request, env) {
             }), {
                 headers: { 'Content-Type': 'application/json' }
             });
-            
+
         } catch (error) {
             console.error('[API Error /users GET]', error);
             return new Response(JSON.stringify({
@@ -1064,7 +1214,7 @@ async function handleApiRequest(request, env) {
             }), { status: 500 });
         }
     }
-    
+
     // GET /api/users/:token - 用户详情
     if (path.startsWith('/users/') && request.method === 'GET') {
         try {
@@ -1075,19 +1225,19 @@ async function handleApiRequest(request, env) {
                     error: 'Token is required'
                 }), { status: 400 });
             }
-            
+
             const storageAdapter = await getStorageAdapter(env);
             const userDataRaw = await storageAdapter.get(`user:${token}`);
-            
+
             if (!userDataRaw) {
                 return new Response(JSON.stringify({
                     success: false,
                     error: '用户不存在'
                 }), { status: 404 });
             }
-            
+
             const userData = typeof userDataRaw === 'string' ? JSON.parse(userDataRaw) : userDataRaw;
-            
+
             // 【修复】检查封禁是否过期（suspend 对象没有 status 字段）
             const now = Date.now();
             let activeSuspend = null;
@@ -1096,11 +1246,11 @@ async function handleApiRequest(request, env) {
                 activeSuspend = userData.suspend;
             }
             // 如果已过期或不存在，activeSuspend 保持 null
-            
+
             // 加载 profile 信息
             const profiles = await storageAdapter.get(KV_KEY_PROFILES) || [];
             const profile = profiles.find(p => p.id === userData.profileId || p.customId === userData.profileId);
-            
+
             // 组装完整的用户信息
             const userDetail = {
                 token: userData.userToken,
@@ -1110,11 +1260,11 @@ async function handleApiRequest(request, env) {
                 status: userData.status,
                 activatedAt: userData.activatedAt,
                 expiresAt: userData.expiresAt,
-                
+
                 // 用户备注
                 remark: userData.remark || '',
                 remarkHistory: userData.remarkHistory || [],
-                
+
                 // 设备信息
                 devices: Object.entries(userData.devices || {}).map(([id, device]) => ({
                     id,
@@ -1122,7 +1272,7 @@ async function handleApiRequest(request, env) {
                     lastSeen: device.lastSeen,
                     activatedAt: device.firstSeen
                 })),
-                
+
                 // 城市信息（从所有设备的城市列表中收集）
                 cities: (() => {
                     const citiesMap = new Map();
@@ -1147,7 +1297,7 @@ async function handleApiRequest(request, env) {
                     });
                     return Array.from(citiesMap.values());
                 })(),
-                
+
                 // 统计信息
                 stats: {
                     totalRequests: userData.stats?.totalRequests || 0,
@@ -1157,24 +1307,24 @@ async function handleApiRequest(request, env) {
                     lastFailedAttempt: userData.stats?.lastFailedAttempt,
                     rateLimitAttempts: userData.stats?.rateLimitAttempts || 0
                 },
-                
+
                 // 封禁信息（只返回有效的封禁）
                 suspend: activeSuspend,
-                
+
                 // 限流信息
                 rateLimit: userData.rateLimit || null,
-                
+
                 // 时间戳
                 createdAt: userData.createdAt
             };
-            
+
             return new Response(JSON.stringify({
                 success: true,
                 data: userDetail
             }), {
                 headers: { 'Content-Type': 'application/json' }
             });
-            
+
         } catch (error) {
             console.error('[API Error /users/:token GET]', error);
             return new Response(JSON.stringify({
@@ -1183,7 +1333,7 @@ async function handleApiRequest(request, env) {
             }), { status: 500 });
         }
     }
-    
+
     // POST /api/users/:token/unsuspend - 解封用户
     if (path.match(/^\/users\/[^\/]+\/unsuspend$/) && request.method === 'POST') {
         try {
@@ -1194,34 +1344,34 @@ async function handleApiRequest(request, env) {
                     error: 'Token is required'
                 }), { status: 400 });
             }
-            
+
             const storageAdapter = await getStorageAdapter(env);
             const userDataRaw = await storageAdapter.get(`user:${token}`);
-            
+
             if (!userDataRaw) {
                 return new Response(JSON.stringify({
                     success: false,
                     error: '用户不存在'
                 }), { status: 404 });
             }
-            
+
             const userData = typeof userDataRaw === 'string' ? JSON.parse(userDataRaw) : userDataRaw;
-            
+
             // 解除封禁
             userData.suspend = null;
             userData.stats = userData.stats || {};
             userData.stats.failedAttempts = 0;
-            
+
             // 保存更新
             await storageAdapter.put(`user:${token}`, userData);
-            
+
             return new Response(JSON.stringify({
                 success: true,
                 message: '用户已解封'
             }), {
                 headers: { 'Content-Type': 'application/json' }
             });
-            
+
         } catch (error) {
             console.error('[API Error /users/:token/unsuspend POST]', error);
             return new Response(JSON.stringify({
@@ -1308,7 +1458,7 @@ async function handleApiRequest(request, env) {
             }), { status: 500 });
         }
     }
-    
+
     // DELETE /api/users/:token - 删除用户
     if (path.match(/^\/users\/[^\/]+$/) && request.method === 'DELETE') {
         try {
@@ -1319,27 +1469,27 @@ async function handleApiRequest(request, env) {
                     error: 'Token is required'
                 }), { status: 400 });
             }
-            
+
             const storageAdapter = await getStorageAdapter(env);
             const userDataRaw = await storageAdapter.get(`user:${token}`);
-            
+
             if (!userDataRaw) {
                 return new Response(JSON.stringify({
                     success: false,
                     error: '用户不存在'
                 }), { status: 404 });
             }
-            
+
             // 删除用户
             await storageAdapter.delete(`user:${token}`);
-            
+
             return new Response(JSON.stringify({
                 success: true,
                 message: '用户已删除'
             }), {
                 headers: { 'Content-Type': 'application/json' }
             });
-            
+
         } catch (error) {
             console.error('[API Error /users/:token DELETE]', error);
             return new Response(JSON.stringify({
@@ -1348,26 +1498,26 @@ async function handleApiRequest(request, env) {
             }), { status: 500 });
         }
     }
-    
+
     // POST /api/users/batch-delete - 批量删除用户
     if (path === '/users/batch-delete' && request.method === 'POST') {
         try {
             const { tokens } = await request.json();
-            
+
             if (!Array.isArray(tokens) || tokens.length === 0) {
                 return new Response(JSON.stringify({
                     success: false,
                     error: '请提供有效的 token 列表'
                 }), { status: 400 });
             }
-            
+
             const storageAdapter = await getStorageAdapter(env);
             const results = {
                 success: 0,
                 failed: 0,
                 errors: []
             };
-            
+
             // 批量删除
             for (const token of tokens) {
                 try {
@@ -1384,7 +1534,7 @@ async function handleApiRequest(request, env) {
                     results.errors.push(`${token}: ${err.message}`);
                 }
             }
-            
+
             return new Response(JSON.stringify({
                 success: true,
                 message: `成功删除 ${results.success} 个用户${results.failed > 0 ? `，失败 ${results.failed} 个` : ''}`,
@@ -1392,7 +1542,7 @@ async function handleApiRequest(request, env) {
             }), {
                 headers: { 'Content-Type': 'application/json' }
             });
-            
+
         } catch (error) {
             console.error('[API Error /users/batch-delete POST]', error);
             return new Response(JSON.stringify({
@@ -1401,7 +1551,7 @@ async function handleApiRequest(request, env) {
             }), { status: 500 });
         }
     }
-    
+
     // DELETE /api/users/:token/devices/:deviceId - 删除单个设备
     if (path.match(/^\/users\/[^\/]+\/devices\/[^\/]+$/) && request.method === 'DELETE') {
         try {
@@ -1414,17 +1564,17 @@ async function handleApiRequest(request, env) {
                     error: 'Token and deviceId are required'
                 }), { status: 400 });
             }
-            
+
             const storageAdapter = await getStorageAdapter(env);
             const userDataRaw = await storageAdapter.get(`user:${token}`);
-            
+
             if (!userDataRaw) {
                 return new Response(JSON.stringify({
                     success: false,
                     error: '用户不存在'
                 }), { status: 404 });
             }
-            
+
             const userData = typeof userDataRaw === 'string' ? JSON.parse(userDataRaw) : userDataRaw;
             if (!userData.devices || !userData.devices[deviceId]) {
                 return new Response(JSON.stringify({
@@ -1432,10 +1582,10 @@ async function handleApiRequest(request, env) {
                     error: '设备不存在'
                 }), { status: 404 });
             }
-            
+
             delete userData.devices[deviceId];
             await storageAdapter.put(`user:${token}`, userData);
-            
+
             return new Response(JSON.stringify({
                 success: true,
                 message: '设备已解绑'
@@ -1450,7 +1600,7 @@ async function handleApiRequest(request, env) {
             }), { status: 500 });
         }
     }
-    
+
     // PATCH /api/users/:token - 修改用户信息
     if (path.match(/^\/users\/[^\/]+$/) && request.method === 'PATCH') {
         try {
@@ -1461,20 +1611,20 @@ async function handleApiRequest(request, env) {
                     error: 'Token is required'
                 }), { status: 400 });
             }
-            
+
             const updates = await request.json();
             const storageAdapter = await getStorageAdapter(env);
             const userDataRaw = await storageAdapter.get(`user:${token}`);
-            
+
             if (!userDataRaw) {
                 return new Response(JSON.stringify({
                     success: false,
                     error: '用户不存在'
                 }), { status: 404 });
             }
-            
+
             const userData = typeof userDataRaw === 'string' ? JSON.parse(userDataRaw) : userDataRaw;
-            
+
             // 更新允许修改的字段
             if (updates.expiresAt !== undefined) {
                 userData.expiresAt = updates.expiresAt;
@@ -1485,7 +1635,7 @@ async function handleApiRequest(request, env) {
             if (updates.status !== undefined) {
                 userData.status = updates.status;
             }
-            
+
             // 【新增】处理备注更新
             if (updates.remark !== undefined) {
                 // 验证备注长度（最多50字符）
@@ -1495,36 +1645,36 @@ async function handleApiRequest(request, env) {
                         error: '备注长度不能超过50字符'
                     }), { status: 400 });
                 }
-                
+
                 // 如果备注有变化，记录到历史
                 if (updates.remark !== (userData.remark || '')) {
                     if (!userData.remarkHistory) {
                         userData.remarkHistory = [];
                     }
-                    
+
                     // 保存旧备注到历史（最多保留10条）
                     userData.remarkHistory.unshift({
                         content: userData.remark || '',
                         updatedAt: new Date().toISOString()
                     });
-                    
+
                     // 只保留最近 10 条历史
                     userData.remarkHistory = userData.remarkHistory.slice(0, 10);
                 }
-                
+
                 userData.remark = updates.remark;
             }
-            
+
             // 保存更新
             await storageAdapter.put(`user:${token}`, userData);
-            
+
             return new Response(JSON.stringify({
                 success: true,
                 message: '用户信息已更新'
             }), {
                 headers: { 'Content-Type': 'application/json' }
             });
-            
+
         } catch (error) {
             console.error('[API Error /users/:token PATCH]', error);
             return new Response(JSON.stringify({
@@ -1533,7 +1683,7 @@ async function handleApiRequest(request, env) {
             }), { status: 500 });
         }
     }
-    
+
     // DELETE /api/users/:token - 删除用户
     if (path.match(/^\/users\/[^\/]+$/) && request.method === 'DELETE') {
         try {
@@ -1544,27 +1694,27 @@ async function handleApiRequest(request, env) {
                     error: 'Token is required'
                 }), { status: 400 });
             }
-            
+
             const storageAdapter = await getStorageAdapter(env);
             const userDataRaw = await storageAdapter.get(`user:${token}`);
-            
+
             if (!userDataRaw) {
                 return new Response(JSON.stringify({
                     success: false,
                     error: '用户不存在'
                 }), { status: 404 });
             }
-            
+
             // 删除用户
             await storageAdapter.delete(`user:${token}`);
-            
+
             return new Response(JSON.stringify({
                 success: true,
                 message: '用户已删除'
             }), {
                 headers: { 'Content-Type': 'application/json' }
             });
-            
+
         } catch (error) {
             console.error('[API Error /users/:token DELETE]', error);
             return new Response(JSON.stringify({
@@ -1573,7 +1723,7 @@ async function handleApiRequest(request, env) {
             }), { status: 500 });
         }
     }
-    
+
     // ==================== 原有 API ====================
 
     switch (path) {
@@ -1582,7 +1732,7 @@ async function handleApiRequest(request, env) {
             headers.append('Set-Cookie', `${COOKIE_NAME}=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0`);
             return new Response(JSON.stringify({ success: true }), { headers });
         }
-        
+
         case '/data': {
             try {
                 const storageAdapter = await getStorageAdapter(env);
@@ -1597,7 +1747,7 @@ async function handleApiRequest(request, env) {
                     profileToken: settings.profileToken || 'profiles'
                 };
                 return new Response(JSON.stringify({ misubs, profiles, config }), { headers: { 'Content-Type': 'application/json' } });
-            } catch(e) {
+            } catch (e) {
                 console.error('[API Error /data]', 'Failed to read from storage:', e);
                 return new Response(JSON.stringify({ error: '读取初始数据失败' }), { status: 500 });
             }
@@ -1688,85 +1838,85 @@ async function handleApiRequest(request, env) {
             }
         }
 
-            case '/node_count': {
-                if (request.method !== 'POST') return new Response('Method Not Allowed', { status: 405 });
-                const { url: subUrl } = await request.json();
-                if (!subUrl || typeof subUrl !== 'string' || !/^https?:\/\//.test(subUrl)) {
-                    return new Response(JSON.stringify({ error: 'Invalid or missing url' }), { status: 400 });
-                }
-                
-                const result = { count: 0, userInfo: null };
-
-                try {
-                    const fetchOptions = {
-                        headers: { 'User-Agent': 'MiSub-Node-Counter/2.0' },
-                        redirect: "follow",
-                        cf: { insecureSkipVerify: true }
-                    };
-                    const trafficFetchOptions = {
-                        headers: { 'User-Agent': 'Clash for Windows/0.20.39' },
-                        redirect: "follow",
-                        cf: { insecureSkipVerify: true }
-                    };
-
-                    const trafficRequest = fetch(new Request(subUrl, trafficFetchOptions));
-                    const nodeCountRequest = fetch(new Request(subUrl, fetchOptions));
-
-                    // --- [核心修正] 使用 Promise.allSettled 替换 Promise.all ---
-                    const responses = await Promise.allSettled([trafficRequest, nodeCountRequest]);
-
-                    // 1. 处理流量请求的结果
-                    if (responses[0].status === 'fulfilled' && responses[0].value.ok) {
-                        const trafficResponse = responses[0].value;
-                        const userInfoHeader = trafficResponse.headers.get('subscription-userinfo');
-                        if (userInfoHeader) {
-                            const info = {};
-                            userInfoHeader.split(';').forEach(part => {
-                                const [key, value] = part.trim().split('=');
-                                if (key && value) info[key] = /^\d+$/.test(value) ? Number(value) : value;
-                            });
-                            result.userInfo = info;
-                        }
-                    } else if (responses[0].status === 'rejected') {
-                        // 流量请求失败
-                    }
-
-                    // 2. 处理节点数请求的结果
-                    if (responses[1].status === 'fulfilled' && responses[1].value.ok) {
-                        const nodeCountResponse = responses[1].value;
-                        const text = await nodeCountResponse.text();
-                        let decoded = '';
-                        try { decoded = atob(text.replace(/\s/g, '')); } catch { decoded = text; }
-                        const lineMatches = decoded.match(/^(ss|ssr|vmess|vless|trojan|hysteria2?|hy|hy2|tuic|anytls|socks5):\/\//gm);
-                        if (lineMatches) {
-                            result.count = lineMatches.length;
-                        }
-                    } else if (responses[1].status === 'rejected') {
-                        // 节点数请求失败
-                    }
-                    
-                    // {{ AURA-X: Modify - 使用存储适配器优化节点计数更新. Approval: 寸止(ID:1735459200). }}
-                    // 只有在至少获取到一个有效信息时，才更新数据库
-                    if (result.userInfo || result.count > 0) {
-                        const storageAdapter = await getStorageAdapter(env);
-                        const originalSubs = await storageAdapter.get(KV_KEY_SUBS) || [];
-                        const allSubs = JSON.parse(JSON.stringify(originalSubs)); // 深拷贝
-                        const subToUpdate = allSubs.find(s => s.url === subUrl);
-
-                        if (subToUpdate) {
-                            subToUpdate.nodeCount = result.count;
-                            subToUpdate.userInfo = result.userInfo;
-
-                            await storageAdapter.put(KV_KEY_SUBS, allSubs);
-                        }
-                    }
-                    
-                } catch (e) {
-                    // 节点计数处理错误
-                }
-                
-                return new Response(JSON.stringify(result), { headers: { 'Content-Type': 'application/json' } });
+        case '/node_count': {
+            if (request.method !== 'POST') return new Response('Method Not Allowed', { status: 405 });
+            const { url: subUrl } = await request.json();
+            if (!subUrl || typeof subUrl !== 'string' || !/^https?:\/\//.test(subUrl)) {
+                return new Response(JSON.stringify({ error: 'Invalid or missing url' }), { status: 400 });
             }
+
+            const result = { count: 0, userInfo: null };
+
+            try {
+                const fetchOptions = {
+                    headers: { 'User-Agent': 'MiSub-Node-Counter/2.0' },
+                    redirect: "follow",
+                    cf: { insecureSkipVerify: true }
+                };
+                const trafficFetchOptions = {
+                    headers: { 'User-Agent': 'Clash for Windows/0.20.39' },
+                    redirect: "follow",
+                    cf: { insecureSkipVerify: true }
+                };
+
+                const trafficRequest = fetch(new Request(subUrl, trafficFetchOptions));
+                const nodeCountRequest = fetch(new Request(subUrl, fetchOptions));
+
+                // --- [核心修正] 使用 Promise.allSettled 替换 Promise.all ---
+                const responses = await Promise.allSettled([trafficRequest, nodeCountRequest]);
+
+                // 1. 处理流量请求的结果
+                if (responses[0].status === 'fulfilled' && responses[0].value.ok) {
+                    const trafficResponse = responses[0].value;
+                    const userInfoHeader = trafficResponse.headers.get('subscription-userinfo');
+                    if (userInfoHeader) {
+                        const info = {};
+                        userInfoHeader.split(';').forEach(part => {
+                            const [key, value] = part.trim().split('=');
+                            if (key && value) info[key] = /^\d+$/.test(value) ? Number(value) : value;
+                        });
+                        result.userInfo = info;
+                    }
+                } else if (responses[0].status === 'rejected') {
+                    // 流量请求失败
+                }
+
+                // 2. 处理节点数请求的结果
+                if (responses[1].status === 'fulfilled' && responses[1].value.ok) {
+                    const nodeCountResponse = responses[1].value;
+                    const text = await nodeCountResponse.text();
+                    let decoded = '';
+                    try { decoded = atob(text.replace(/\s/g, '')); } catch { decoded = text; }
+                    const lineMatches = decoded.match(/^(ss|ssr|vmess|vless|trojan|hysteria2?|hy|hy2|tuic|anytls|socks5):\/\//gm);
+                    if (lineMatches) {
+                        result.count = lineMatches.length;
+                    }
+                } else if (responses[1].status === 'rejected') {
+                    // 节点数请求失败
+                }
+
+                // {{ AURA-X: Modify - 使用存储适配器优化节点计数更新. Approval: 寸止(ID:1735459200). }}
+                // 只有在至少获取到一个有效信息时，才更新数据库
+                if (result.userInfo || result.count > 0) {
+                    const storageAdapter = await getStorageAdapter(env);
+                    const originalSubs = await storageAdapter.get(KV_KEY_SUBS) || [];
+                    const allSubs = JSON.parse(JSON.stringify(originalSubs)); // 深拷贝
+                    const subToUpdate = allSubs.find(s => s.url === subUrl);
+
+                    if (subToUpdate) {
+                        subToUpdate.nodeCount = result.count;
+                        subToUpdate.userInfo = result.userInfo;
+
+                        await storageAdapter.put(KV_KEY_SUBS, allSubs);
+                    }
+                }
+
+            } catch (e) {
+                // 节点计数处理错误
+            }
+
+            return new Response(JSON.stringify(result), { headers: { 'Content-Type': 'application/json' } });
+        }
 
         case '/fetch_external_url': { // New case
             if (request.method !== 'POST') return new Response('Method Not Allowed', { status: 405 });
@@ -1882,13 +2032,13 @@ async function handleApiRequest(request, env) {
 
         case '/debug_subscription': {
             if (request.method !== 'POST') return new Response('Method Not Allowed', { status: 405 });
-            
+
             try {
                 const { url: debugUrl, userAgent } = await request.json();
                 if (!debugUrl || typeof debugUrl !== 'string' || !/^https?:\/\//.test(debugUrl)) {
                     return new Response(JSON.stringify({ error: 'Invalid or missing url' }), { status: 400 });
                 }
-                
+
                 const result = {
                     url: debugUrl,
                     userAgent: userAgent || 'MiSub-Debug/1.0',
@@ -1899,22 +2049,22 @@ async function handleApiRequest(request, env) {
                     ssNodes: [],
                     error: null
                 };
-                
+
                 try {
                     const response = await fetch(new Request(debugUrl, {
                         headers: { 'User-Agent': result.userAgent },
                         redirect: "follow",
                         cf: { insecureSkipVerify: true }
                     }));
-                    
+
                     if (!response.ok) {
                         result.error = `HTTP ${response.status}: ${response.statusText}`;
                         return new Response(JSON.stringify(result), { headers: { 'Content-Type': 'application/json' } });
                     }
-                    
+
                     const text = await response.text();
                     result.rawContent = text.substring(0, 2000); // 限制原始内容长度
-                    
+
                     // 处理Base64解码
                     let processedText = text;
                     try {
@@ -1928,23 +2078,23 @@ async function handleApiRequest(request, env) {
                     } catch (e) {
                         // Base64解码失败，使用原始内容
                     }
-                    
+
                     result.processedContent = processedText.substring(0, 2000); // 限制处理后内容长度
-                    
+
                     // 提取所有有效节点
                     const allNodes = processedText.replace(/\r\n/g, '\n').split('\n')
                         .map(line => line.trim())
                         .filter(line => /^(ss|ssr|vmess|vless|trojan|hysteria2?|hy|hy2|tuic|anytls|socks5):\/\//.test(line));
-                    
+
                     result.validNodes = allNodes.slice(0, 20); // 限制显示节点数量
-                    
+
                     // 特别提取SS节点进行分析
                     result.ssNodes = allNodes.filter(line => line.startsWith('ss://')).map(line => {
                         try {
                             const hashIndex = line.indexOf('#');
                             let baseLink = hashIndex !== -1 ? line.substring(0, hashIndex) : line;
                             let fragment = hashIndex !== -1 ? line.substring(hashIndex) : '';
-                            
+
                             const protocolEnd = baseLink.indexOf('://');
                             const atIndex = baseLink.indexOf('@');
                             let analysis = {
@@ -1954,16 +2104,16 @@ async function handleApiRequest(request, env) {
                                 base64Part: '',
                                 credentials: ''
                             };
-                            
+
                             if (protocolEnd !== -1 && atIndex !== -1) {
                                 const base64Part = baseLink.substring(protocolEnd + 3, atIndex);
                                 analysis.base64Part = base64Part;
-                                
+
                                 if (base64Part.includes('%')) {
                                     analysis.hasUrlEncoding = true;
                                     const decodedBase64 = decodeURIComponent(base64Part);
                                     analysis.fixed = 'ss://' + decodedBase64 + baseLink.substring(atIndex) + fragment;
-                                    
+
                                     try {
                                         analysis.credentials = atob(decodedBase64);
                                     } catch (e) {
@@ -1977,7 +2127,7 @@ async function handleApiRequest(request, env) {
                                     }
                                 }
                             }
-                            
+
                             return analysis;
                         } catch (e) {
                             return {
@@ -1986,17 +2136,17 @@ async function handleApiRequest(request, env) {
                             };
                         }
                     }).slice(0, 10); // 限制SS节点分析数量
-                    
+
                     result.success = true;
                     result.totalNodes = allNodes.length;
                     result.ssNodesCount = allNodes.filter(line => line.startsWith('ss://')).length;
-                    
+
                 } catch (e) {
                     result.error = e.message;
                 }
-                
+
                 return new Response(JSON.stringify(result), { headers: { 'Content-Type': 'application/json' } });
-                
+
             } catch (e) {
                 return new Response(JSON.stringify({ error: `调试失败: ${e.message}` }), { status: 500 });
             }
@@ -2006,21 +2156,21 @@ async function handleApiRequest(request, env) {
             if (request.method === 'POST') {
                 // 授权检查
                 if (!await authMiddleware(request, env)) {
-                    return new Response(JSON.stringify({ error: 'Unauthorized' }), { 
-                        status: 401, 
-                        headers: { 'Content-Type': 'application/json' } 
+                    return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+                        status: 401,
+                        headers: { 'Content-Type': 'application/json' }
                     });
                 }
-                
+
                 try {
                     const { profileId, count, duration, remark } = await request.json();
                     const config = getConfig();
-                    
+
                     // 参数验证
                     if (!profileId || !count || !duration) {
-                        return new Response(JSON.stringify({ 
-                            success: false, 
-                            error: '缺少必需参数：profileId, count, duration' 
+                        return new Response(JSON.stringify({
+                            success: false,
+                            error: '缺少必需参数：profileId, count, duration'
                         }), { status: 400, headers: { 'Content-Type': 'application/json' } });
                     }
 
@@ -2031,48 +2181,48 @@ async function handleApiRequest(request, env) {
                             error: '备注长度不能超过50个字符'
                         }), { status: 400, headers: { 'Content-Type': 'application/json' } });
                     }
-                    
+
                     if (count < config.batchGenerate.MIN_TOKENS_PER_BATCH || count > config.batchGenerate.MAX_TOKENS_PER_BATCH) {
-                        return new Response(JSON.stringify({ 
-                            success: false, 
-                            error: `生成数量必须在 ${config.batchGenerate.MIN_TOKENS_PER_BATCH}-${config.batchGenerate.MAX_TOKENS_PER_BATCH} 之间` 
+                        return new Response(JSON.stringify({
+                            success: false,
+                            error: `生成数量必须在 ${config.batchGenerate.MIN_TOKENS_PER_BATCH}-${config.batchGenerate.MAX_TOKENS_PER_BATCH} 之间`
                         }), { status: 400, headers: { 'Content-Type': 'application/json' } });
                     }
-                    
+
                     // 允许小数有效期（支持测试：1分钟 = 1/1440 ≈ 0.000694）
                     if (duration <= 0 || duration > config.batchGenerate.MAX_DURATION_DAYS) {
-                        return new Response(JSON.stringify({ 
-                            success: false, 
-                            error: `有效期必须大于0且不超过 ${config.batchGenerate.MAX_DURATION_DAYS} 天` 
+                        return new Response(JSON.stringify({
+                            success: false,
+                            error: `有效期必须大于0且不超过 ${config.batchGenerate.MAX_DURATION_DAYS} 天`
                         }), { status: 400, headers: { 'Content-Type': 'application/json' } });
                     }
-                    
+
                     // 获取设置（用于构建URL）
                     const storageAdapter = await getStorageAdapter(env);
                     const settings = await storageAdapter.get(KV_KEY_SETTINGS) || {};
                     const mergedConfig = { ...defaultSettings, ...settings };
-                    
+
                     // 验证订阅组是否存在
                     const allProfiles = await storageAdapter.get(KV_KEY_PROFILES) || [];
-                    const profile = allProfiles.find(p => 
+                    const profile = allProfiles.find(p =>
                         (p.customId && p.customId === profileId) || p.id === profileId
                     );
-                    
+
                     if (!profile) {
-                        return new Response(JSON.stringify({ 
-                            success: false, 
-                            error: '订阅组不存在' 
+                        return new Response(JSON.stringify({
+                            success: false,
+                            error: '订阅组不存在'
                         }), { status: 404, headers: { 'Content-Type': 'application/json' } });
                     }
-                    
+
                     // 批量生成Token
                     const tokens = [];
                     const durationMs = duration * 24 * 60 * 60 * 1000;
                     const createdAt = Date.now();
-                    
+
                     for (let i = 0; i < count; i++) {
                         const userToken = await generateUniqueUserToken(env, config.batchGenerate.TOKEN_LENGTH);
-                        
+
                         // 创建用户数据
                         const userData = {
                             userToken,
@@ -2096,14 +2246,14 @@ async function handleApiRequest(request, env) {
                         if (remark && typeof remark === 'string') {
                             userData.remark = remark;
                         }
-                        
+
                         // 存储到KV
                         await storageAdapter.put(`user:${userToken}`, userData);
-                        
+
                         // 构建URL（三段式）
                         const hostname = new URL(request.url).host;
                         const url = `https://${hostname}/${mergedConfig.profileToken}/${profileId}/${userToken}`;
-                        
+
                         tokens.push({
                             token: userToken,
                             url,
@@ -2111,25 +2261,25 @@ async function handleApiRequest(request, env) {
                             createdAt
                         });
                     }
-                    
+
                     // 发送Telegram通知
                     if (mergedConfig.BotToken && mergedConfig.ChatID) {
                         const message = `🎫 *批量生成订阅链接*\n\n*订阅组:* \`${profile.name}\`\n*数量:* ${count}\n*有效期:* ${duration}天\n*时间:* ${new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}`;
                         await sendTgNotification(mergedConfig, message);
                     }
-                    
+
                     return new Response(JSON.stringify({
                         success: true,
                         count: tokens.length,
                         tokens,
                         profileName: profile.name
                     }), { headers: { 'Content-Type': 'application/json' } });
-                    
+
                 } catch (error) {
                     console.error('[API Error /batch-generate]', error);
-                    return new Response(JSON.stringify({ 
-                        success: false, 
-                        error: `批量生成失败: ${error.message}` 
+                    return new Response(JSON.stringify({
+                        success: false,
+                        error: `批量生成失败: ${error.message}`
                     }), { status: 500, headers: { 'Content-Type': 'application/json' } });
                 }
             }
@@ -2167,45 +2317,45 @@ async function handleApiRequest(request, env) {
             return new Response('Method Not Allowed', { status: 405 });
         }
     }
-    
+
     return new Response('API route not found', { status: 404 });
 }
 // --- 名称前缀辅助函数 (无修改) ---
 function prependNodeName(link, prefix) {
-  if (!prefix) return link;
-  const appendToFragment = (baseLink, namePrefix) => {
-    const hashIndex = baseLink.lastIndexOf('#');
-    const originalName = hashIndex !== -1 ? decodeURIComponent(baseLink.substring(hashIndex + 1)) : '';
-    const base = hashIndex !== -1 ? baseLink.substring(0, hashIndex) : baseLink;
-    if (originalName.startsWith(namePrefix)) {
-        return baseLink;
+    if (!prefix) return link;
+    const appendToFragment = (baseLink, namePrefix) => {
+        const hashIndex = baseLink.lastIndexOf('#');
+        const originalName = hashIndex !== -1 ? decodeURIComponent(baseLink.substring(hashIndex + 1)) : '';
+        const base = hashIndex !== -1 ? baseLink.substring(0, hashIndex) : baseLink;
+        if (originalName.startsWith(namePrefix)) {
+            return baseLink;
+        }
+        const newName = originalName ? `${namePrefix} - ${originalName}` : namePrefix;
+        return `${base}#${encodeURIComponent(newName)}`;
     }
-    const newName = originalName ? `${namePrefix} - ${originalName}` : namePrefix;
-    return `${base}#${encodeURIComponent(newName)}`;
-  }
-  if (link.startsWith('vmess://')) {
-    try {
-      const base64Part = link.substring('vmess://'.length);
-      const binaryString = atob(base64Part);
-      const bytes = new Uint8Array(binaryString.length);
-      for (let i = 0; i < binaryString.length; i++) {
-          bytes[i] = binaryString.charCodeAt(i);
-      }
-      const jsonString = new TextDecoder('utf-8').decode(bytes);
-      const nodeConfig = JSON.parse(jsonString);
-      const originalPs = nodeConfig.ps || '';
-      if (!originalPs.startsWith(prefix)) {
-        nodeConfig.ps = originalPs ? `${prefix} - ${originalPs}` : prefix;
-      }
-      const newJsonString = JSON.stringify(nodeConfig);
-      const newBase64Part = btoa(unescape(encodeURIComponent(newJsonString)));
-      return 'vmess://' + newBase64Part;
-    } catch (e) {
-      console.error("为 vmess 节点添加名称前缀失败，将回退到通用方法。", e);
-      return appendToFragment(link, prefix);
+    if (link.startsWith('vmess://')) {
+        try {
+            const base64Part = link.substring('vmess://'.length);
+            const binaryString = atob(base64Part);
+            const bytes = new Uint8Array(binaryString.length);
+            for (let i = 0; i < binaryString.length; i++) {
+                bytes[i] = binaryString.charCodeAt(i);
+            }
+            const jsonString = new TextDecoder('utf-8').decode(bytes);
+            const nodeConfig = JSON.parse(jsonString);
+            const originalPs = nodeConfig.ps || '';
+            if (!originalPs.startsWith(prefix)) {
+                nodeConfig.ps = originalPs ? `${prefix} - ${originalPs}` : prefix;
+            }
+            const newJsonString = JSON.stringify(nodeConfig);
+            const newBase64Part = btoa(unescape(encodeURIComponent(newJsonString)));
+            return 'vmess://' + newBase64Part;
+        } catch (e) {
+            console.error("为 vmess 节点添加名称前缀失败，将回退到通用方法。", e);
+            return appendToFragment(link, prefix);
+        }
     }
-  }
-  return appendToFragment(link, prefix);
+    return appendToFragment(link, prefix);
 }
 
 /**
@@ -2228,7 +2378,7 @@ function isValidBase64(str) {
  */
 function getProcessedUserAgent(originalUserAgent, url = '') {
     if (!originalUserAgent) return originalUserAgent;
-    
+
     // CF-Workers-SUB的精华策略：
     // 统一使用v2rayN UA获取订阅，绕过机场过滤同时保证获取完整节点
     // 不需要复杂的客户端判断，简单而有效
@@ -2238,17 +2388,17 @@ function getProcessedUserAgent(originalUserAgent, url = '') {
 // --- 节点列表生成函数 ---
 async function generateCombinedNodeList(context, config, userAgent, misubs, prependedContent = '', profilePrefixSettings = null) {
     const nodeRegex = /^(ss|ssr|vmess|vless|trojan|hysteria2?|hy|hy2|tuic|anytls|socks5):\/\//g;
-    
+
     // 判断是否启用手动节点前缀
-    const shouldPrependManualNodes = profilePrefixSettings?.enableManualNodes ?? 
-        config.prefixConfig?.enableManualNodes ?? 
+    const shouldPrependManualNodes = profilePrefixSettings?.enableManualNodes ??
+        config.prefixConfig?.enableManualNodes ??
         config.prependSubName ?? true;
-    
+
     // 手动节点前缀文本
-    const manualNodePrefix = profilePrefixSettings?.manualNodePrefix ?? 
-        config.prefixConfig?.manualNodePrefix ?? 
+    const manualNodePrefix = profilePrefixSettings?.manualNodePrefix ??
+        config.prefixConfig?.manualNodePrefix ??
         '手动节点';
-    
+
     const processedManualNodes = misubs.filter(sub => !sub.url.toLowerCase().startsWith('http')).map(node => {
         if (node.isExpiredNode) {
             return node.url; // Directly use the URL for expired node
@@ -2260,7 +2410,7 @@ async function generateCombinedNodeList(context, config, userAgent, misubs, prep
                     const hashIndex = processedUrl.indexOf('#');
                     let baseLink = hashIndex !== -1 ? processedUrl.substring(0, hashIndex) : processedUrl;
                     let fragment = hashIndex !== -1 ? processedUrl.substring(hashIndex) : '';
-                    
+
                     // 检查base64部分是否包含URL编码字符
                     const protocolEnd = baseLink.indexOf('://');
                     const atIndex = baseLink.indexOf('@');
@@ -2277,7 +2427,7 @@ async function generateCombinedNodeList(context, config, userAgent, misubs, prep
                     // 如果处理失败，使用原始链接
                 }
             }
-            
+
             return shouldPrependManualNodes ? prependNodeName(processedUrl, manualNodePrefix) : processedUrl;
         }
     }).join('\n');
@@ -2289,14 +2439,14 @@ async function generateCombinedNodeList(context, config, userAgent, misubs, prep
             const processedUserAgent = getProcessedUserAgent(userAgent, sub.url);
             const requestHeaders = { 'User-Agent': processedUserAgent };
             const response = await Promise.race([
-                fetch(new Request(sub.url, { 
-                    headers: requestHeaders, 
-                    redirect: "follow", 
-                    cf: { 
+                fetch(new Request(sub.url, {
+                    headers: requestHeaders,
+                    redirect: "follow",
+                    cf: {
                         insecureSkipVerify: true,
                         allowUntrusted: true,
                         validateCertificate: false
-                    } 
+                    }
                 })),
                 new Promise((_, reject) => setTimeout(() => reject(new Error('Request timed out')), 8000))
             ]);
@@ -2305,7 +2455,7 @@ async function generateCombinedNodeList(context, config, userAgent, misubs, prep
                 return '';
             }
             let text = await response.text();
-            
+
             // 智能内容类型检测 - 更精确的判断条件
             if (text.includes('proxies:') && text.includes('rules:')) {
                 // 这是完整的Clash配置文件，不是节点列表
@@ -2335,7 +2485,7 @@ async function generateCombinedNodeList(context, config, userAgent, misubs, prep
                             const hashIndex = line.indexOf('#');
                             let baseLink = hashIndex !== -1 ? line.substring(0, hashIndex) : line;
                             let fragment = hashIndex !== -1 ? line.substring(hashIndex) : '';
-                            
+
                             // 检查base64部分是否包含URL编码字符
                             const protocolEnd = baseLink.indexOf('://');
                             const atIndex = baseLink.indexOf('@');
@@ -2360,7 +2510,7 @@ async function generateCombinedNodeList(context, config, userAgent, misubs, prep
             // [核心重構] 引入白名單 (keep:) 和黑名單 (exclude) 模式
             if (sub.exclude && sub.exclude.trim() !== '') {
                 const rules = sub.exclude.trim().split('\n').map(r => r.trim()).filter(Boolean);
-                
+
                 const keepRules = rules.filter(r => r.toLowerCase().startsWith('keep:'));
 
                 if (keepRules.length > 0) {
@@ -2379,7 +2529,7 @@ async function generateCombinedNodeList(context, config, userAgent, misubs, prep
                     });
 
                     const nameRegex = nameRegexParts.length > 0 ? new RegExp(nameRegexParts.join('|'), 'i') : null;
-                    
+
                     validNodes = validNodes.filter(nodeLink => {
                         // 檢查協議是否匹配
                         const protocolMatch = nodeLink.match(/^(.*?):\/\//);
@@ -2416,7 +2566,7 @@ async function generateCombinedNodeList(context, config, userAgent, misubs, prep
                             nameRegexParts.push(rule);
                         }
                     });
-                    
+
                     const nameRegex = nameRegexParts.length > 0 ? new RegExp(nameRegexParts.join('|'), 'i') : null;
 
                     validNodes = validNodes.filter(nodeLink => {
@@ -2460,16 +2610,16 @@ async function generateCombinedNodeList(context, config, userAgent, misubs, prep
                     });
                 }
             }
-            
+
             // 判断是否启用订阅前缀
-            const shouldPrependSubscriptions = profilePrefixSettings?.enableSubscriptions ?? 
-                config.prefixConfig?.enableSubscriptions ?? 
+            const shouldPrependSubscriptions = profilePrefixSettings?.enableSubscriptions ??
+                config.prefixConfig?.enableSubscriptions ??
                 config.prependSubName ?? true;
-            
+
             return (shouldPrependSubscriptions && sub.name)
                 ? validNodes.map(node => prependNodeName(node, sub.name)).join('\n')
                 : validNodes.join('\n');
-        } catch (e) { 
+        } catch (e) {
             // 订阅处理错误，生成错误节点
             const errorNodeName = `连接错误-${sub.name || '未知'}`;
             return `trojan://error@127.0.0.1:8888?security=tls&allowInsecure=1&type=tcp#${encodeURIComponent(errorNodeName)}`;
@@ -2505,7 +2655,7 @@ async function generateCombinedNodeList(context, config, userAgent, misubs, prep
  */
 function determineTargetFormat(url, userAgent, effectiveSubConfig = null) {
     let targetFormat = url.searchParams.get('target');
-    
+
     if (!targetFormat) {
         const supportedFormats = ['clash', 'singbox', 'surge', 'loon', 'shadowrocket', 'mixed', 'base64', 'v2ray', 'trojan'];
         for (const format of supportedFormats) {
@@ -2522,7 +2672,7 @@ function determineTargetFormat(url, userAgent, effectiveSubConfig = null) {
             }
         }
     }
-    
+
     if (!targetFormat) {
         const ua = userAgent.toLowerCase();
         const uaMapping = [
@@ -2545,7 +2695,7 @@ function determineTargetFormat(url, userAgent, effectiveSubConfig = null) {
             ['quantumult', 'quanx'],
             ['clash', 'clash']
         ];
-        
+
         for (const [keyword, format] of uaMapping) {
             if (ua.includes(keyword)) {
                 targetFormat = format;
@@ -2553,7 +2703,7 @@ function determineTargetFormat(url, userAgent, effectiveSubConfig = null) {
             }
         }
     }
-    
+
     // 降级逻辑：如果格式需要SubConfig但未配置
     // 注意：Clash不能降级到base64（Clash客户端只支持yaml格式）
     // Loon和Surge可以降级到base64（通用格式）
@@ -2564,12 +2714,12 @@ function determineTargetFormat(url, userAgent, effectiveSubConfig = null) {
             targetFormat = 'base64';
         }
     }
-    
+
     // Clash格式特殊处理：即使没有SubConfig也保持clash格式，后续会生成最小化配置
     if (targetFormat === 'clash' && (!effectiveSubConfig || effectiveSubConfig.trim() === '')) {
         console.log(`[Format] clash format without SubConfig, will generate minimal yaml config`);
     }
-    
+
     return targetFormat || 'base64';
 }
 
@@ -2588,25 +2738,25 @@ function determineTargetFormat(url, userAgent, effectiveSubConfig = null) {
  */
 async function processViaSubconverter(combinedNodeList, targetFormat, url, callbackPath, env, effectiveSubConverter, effectiveSubConfig, subName, additionalHeaders = {}) {
     const base64Content = btoa(unescape(encodeURIComponent(combinedNodeList)));
-    
+
     // 🔧 特殊处理：Clash格式但没有SubConfig时，使用内置的极简配置
     if (targetFormat === 'clash' && (!effectiveSubConfig || effectiveSubConfig.trim() === '')) {
         console.log('[Clash] No SubConfig provided, using built-in minimal config');
-        
+
         // 使用极简配置（只有基础规则：中国直连+其他走代理）
         // 配置特点：
         // - 1条规则：中国IP直连
         // - 2个代理组：代理（包含所有节点）、规则外路由选择
         // - 不按地区分组，适合节点少的场景
         effectiveSubConfig = 'https://gist.githubusercontent.com/tindy2013/1fa08640a9088ac8652dbd40c5d2715b/raw/lhie1_clash.ini';
-        
+
         console.log(`[Clash] Using minimal config: ${effectiveSubConfig}`);
     }
-    
+
     // 生成callback URL
     const callbackToken = await getCallbackToken(env);
     const callbackUrl = `${url.protocol}//${url.host}${callbackPath}?target=base64&callback_token=${callbackToken}`;
-    
+
     // 如果是订阅转换器的回调请求，直接返回base64内容
     if (url.searchParams.get('callback_token') === callbackToken) {
         return new Response(base64Content, {
@@ -2616,7 +2766,7 @@ async function processViaSubconverter(combinedNodeList, targetFormat, url, callb
             }
         });
     }
-    
+
     // 请求订阅转换器
     const subconverterUrl = new URL(`https://${effectiveSubConverter}/sub`);
     subconverterUrl.searchParams.set('target', targetFormat);
@@ -2625,39 +2775,39 @@ async function processViaSubconverter(combinedNodeList, targetFormat, url, callb
         subconverterUrl.searchParams.set('config', effectiveSubConfig);
     }
     subconverterUrl.searchParams.set('new_name', 'true');
-    
+
     // 调试日志
     console.log(`[Subconverter] Requesting: ${subconverterUrl.toString()}`);
     console.log(`[Subconverter] Callback URL: ${callbackUrl}`);
     console.log(`[Subconverter] Target: ${targetFormat}, SubConfig: ${effectiveSubConfig ? 'configured' : 'not configured'}`);
-    
+
     try {
         const subconverterResponse = await fetch(subconverterUrl.toString(), {
             method: 'GET',
             headers: { 'User-Agent': 'Mozilla/5.0' },
         });
-        
+
         if (!subconverterResponse.ok) {
             const errorBody = await subconverterResponse.text();
             throw new Error(`Subconverter service returned status: ${subconverterResponse.status}. Body: ${errorBody}`);
         }
-        
+
         const responseText = await subconverterResponse.text();
-        
+
         // 调试日志
         console.log(`[Subconverter] Response length: ${responseText.length} bytes`);
         console.log(`[Subconverter] Response preview: ${responseText.substring(0, 500)}`);
-        
+
         const responseHeaders = new Headers(subconverterResponse.headers);
         responseHeaders.set('Content-Disposition', `attachment; filename*=utf-8''${encodeURIComponent(subName)}`);
         responseHeaders.set('Content-Type', 'text/plain; charset=utf-8');
         responseHeaders.set('Cache-Control', 'no-store, no-cache');
-        
+
         // 添加额外的响应头
         for (const [key, value] of Object.entries(additionalHeaders)) {
             responseHeaders.set(key, value);
         }
-        
+
         return new Response(responseText, {
             status: subconverterResponse.status,
             statusText: subconverterResponse.statusText,
@@ -2724,7 +2874,7 @@ function generateDeviceLimitError(deviceCount, maxDevices) {
 function generateErrorConfig(format, errorMessage) {
     let configContent = '';
     let contentType = '';
-    
+
     switch (format.toLowerCase()) {
         case 'clash':
             configContent = `# ⚠️ subscription access limited
@@ -2756,7 +2906,7 @@ rules:
 `;
             contentType = 'text/yaml; charset=utf-8';
             break;
-            
+
         case 'surge':
             configContent = `#!MANAGED-CONFIG https://example.com/error
 
@@ -2776,7 +2926,7 @@ FINAL,🚫 access limited
 `;
             contentType = 'text/plain; charset=utf-8';
             break;
-            
+
         case 'loon':
             configContent = `# ⚠️ subscription access limited
 # ${errorMessage}
@@ -2796,13 +2946,13 @@ FINAL,🚫 access limited
 `;
             contentType = 'text/plain; charset=utf-8';
             break;
-            
+
         default:
             // default simple error message
             configContent = `⚠️ ${errorMessage}`;
             contentType = 'text/plain; charset=utf-8';
     }
-    
+
     return new Response(configContent, {
         status: 200,
         headers: {
@@ -2918,29 +3068,29 @@ function generateSuspendError(suspendUntil, suspendReason) {
 async function performAntiShareCheck(userToken, userData, request, env, config, settings, context, profile = null) {
     const userAgent = request.headers.get('User-Agent') || 'Unknown';
     // 使用多层降级获取 IP（与 sendEnhancedTgNotification 保持一致）
-    const clientIp = request.headers.get('CF-Connecting-IP') 
+    const clientIp = request.headers.get('CF-Connecting-IP')
         || request.headers.get('X-Forwarded-For')?.split(',')[0]?.trim()
         || request.headers.get('X-Real-IP')
         || 'Unknown';
     const storageAdapter = await getStorageAdapter(env);
-    
+
     // 【通知检查】判断是否应该发送 Telegram 通知
     // 1. 检查全局开关
     const asyncConfig = getConfig();
     const telegramConfig = asyncConfig.telegram;
     const shouldDisableNotifications = !telegramConfig.GLOBAL_NOTIFY_ENABLED;
-    
+
     // 2. 检查是否在测试模式（basic 预设 = 共享模式）
     const isTestMode = profile && profile.policyKey === 'basic' && telegramConfig.DISABLE_NOTIFY_IN_TEST_MODE;
-    
+
     // 3. 决定是否发送通知
     const shouldSendNotifications = !shouldDisableNotifications && !isTestMode;
-    
+
     if (isTestMode) {
         console.log(`[AntiShare] Test mode detected (basic preset), notifications disabled for user ${userToken}`);
     }
     const remarkLine = userData.remark ? `\n*备注:* \`${userData.remark}\`` : '';
-    
+
     // 【通知包装函数】自动检查是否应该发送通知
     const sendNotificationIfEnabled = async (type, additionalData, city) => {
         if (shouldSendNotifications) {
@@ -2948,17 +3098,17 @@ async function performAntiShareCheck(userToken, userData, request, env, config, 
         }
         return false;
     };
-    
+
     // 1. 获取设备ID（hash User-Agent）
     const deviceId = getDeviceId(userAgent);
-    
+
     // 2. 【统一】获取城市信息（只调用一次 GeoIP API，复用结果）
     // 使用与 Telegram 通知完全相同的逻辑
     const apiPriority = config.geoip?.API_PRIORITY || ['ipgeolocation.io', 'ipwhois.io', 'ip-api.com', 'cloudflare'];
     const apiTimeout = config.geoip?.API_TIMEOUT_MS || 3000;
     let city = 'Unknown';
     let geoApiUsed = 'none';
-    
+
     // API 调用函数映射表（与 sendEnhancedTgNotification 完全一致）
     const apiHandlers = {
         'ipgeolocation.io': async () => {
@@ -2999,12 +3149,12 @@ async function performAntiShareCheck(userToken, userData, request, env, config, 
             return (request.cf && request.cf.city) ? request.cf.city : null;
         }
     };
-    
+
     // 按优先级尝试各个 API（只调用一次）
     for (const apiName of apiPriority) {
         const handler = apiHandlers[apiName];
         if (!handler) continue;
-        
+
         try {
             const result = await handler();
             if (result) {
@@ -3017,14 +3167,14 @@ async function performAntiShareCheck(userToken, userData, request, env, config, 
             console.log(`[GeoIP] ${apiName} failed:`, error.message);
         }
     }
-    
+
     const cityKey = city.toLowerCase();
-    
+
     // 3. 初始化数据结构
     if (!userData.devices) {
         userData.devices = {};
     }
-    
+
     if (!userData.stats) {
         userData.stats = {
             totalRequests: 0,
@@ -3035,7 +3185,7 @@ async function performAntiShareCheck(userToken, userData, request, env, config, 
             rateLimitAttempts: 0
         };
     }
-    
+
     // 确保新字段存在（向后兼容）
     if (userData.stats.failedAttempts === undefined) {
         userData.stats.failedAttempts = 0;
@@ -3043,17 +3193,17 @@ async function performAntiShareCheck(userToken, userData, request, env, config, 
     if (userData.stats.rateLimitAttempts === undefined) {
         userData.stats.rateLimitAttempts = 0;
     }
-    
+
     // 3.5 【检测0】账号临时封禁检测（优先级最高）
     if (userData.suspend) {
         const now = Date.now();
-        
+
         // 🔧 策略切换时重新计算封禁时长
         // 如果当前策略的封禁时长更短，允许提前解封
         if (userData.suspend.at && userData.suspend.until) {
             const originalDuration = userData.suspend.until - userData.suspend.at;
             const currentDuration = (config.antiShare.SUSPEND_DURATION_DAYS) * 86400000;  // 使用有效配置
-            
+
             // 如果新策略的封禁时长更短，重新计算 until
             if (currentDuration < originalDuration) {
                 const newUntil = userData.suspend.at + currentDuration;
@@ -3064,26 +3214,26 @@ async function performAntiShareCheck(userToken, userData, request, env, config, 
                     newUntil: new Date(newUntil).toISOString()
                 });
                 userData.suspend.until = newUntil;
-                
+
                 // 保存更新后的封禁信息
                 await storageAdapter.put(`user:${userToken}`, userData);
             }
         }
-        
+
         // 检查封禁是否已过期
         if (userData.suspend.until && now >= userData.suspend.until) {
             // 封禁已过期，自动解冻
             console.log(`[AntiShare] Account ${userToken} auto-unfrozen after suspension`);
-            
+
             // 部分重置计数器（中间方案）：降低到阈值的60%，既保留"案底"又给缓冲空间
             const failedThreshold = config.antiShare.SUSPEND_FAILED_ATTEMPTS_THRESHOLD;
             const rateLimitThreshold = config.antiShare.SUSPEND_RATE_LIMIT_ATTEMPTS_THRESHOLD;
             const oldFailedAttempts = userData.stats.failedAttempts || 0;
             const oldRateLimitAttempts = userData.stats.rateLimitAttempts || 0;
-            
+
             userData.stats.failedAttempts = Math.floor(failedThreshold * 0.6);  // 例如：5 → 3
             userData.stats.rateLimitAttempts = Math.floor(rateLimitThreshold * 0.6);  // 例如：10 → 6
-            
+
             // 发送解封通知
             if (config.telegram.NOTIFY_ON_NEW_DEVICE) {
                 const additionalData = `*Token:* \`${userToken}\`
@@ -3097,15 +3247,15 @@ async function performAntiShareCheck(userToken, userData, request, env, config, 
 ⚠️ 如继续违规，将更快触发再次封禁。${remarkLine}`;
                 context.waitUntil(sendNotificationIfEnabled('✅ *账号已自动解封*', additionalData, city));
             }
-            
+
             delete userData.suspend;
-            
+
             // 保存解封状态
             await storageAdapter.put(`user:${userToken}`, userData);
         } else {
             // 封禁仍然有效，拒绝访问
             console.log(`[AntiShare] Account ${userToken} is suspended until ${new Date(userData.suspend.until).toISOString()}`);
-            
+
             return {
                 allowed: false,
                 reason: 'suspended',
@@ -3114,26 +3264,26 @@ async function performAntiShareCheck(userToken, userData, request, env, config, 
             };
         }
     }
-    
+
     // 4. 判断设备和城市是否存在
     const isNewDevice = !userData.devices[deviceId];
     const deviceCount = Object.keys(userData.devices).length;
-    
+
     // 【检测1】设备数量限制（新设备才检查）
     if (isNewDevice && deviceCount >= config.antiShare.MAX_DEVICES) {
         // 记录失败尝试次数
         userData.stats.failedAttempts = (userData.stats.failedAttempts || 0) + 1;
-        
+
         // 🔍 立即检查是否需要触发封禁
         if (config.antiShare.SUSPEND_ENABLED) {
             const failedAttemptsThreshold = config.antiShare.SUSPEND_FAILED_ATTEMPTS_THRESHOLD;
-            
+
             if (userData.stats.failedAttempts >= failedAttemptsThreshold) {
                 // 触发临时封禁
                 const suspendDurationMs = config.antiShare.SUSPEND_DURATION_DAYS * 24 * 60 * 60 * 1000;
                 const suspendUntil = Date.now() + suspendDurationMs;
                 const suspendReason = `可疑的高频失败尝试（${userData.stats.failedAttempts}次失败尝试，疑似账号共享或滥用）`;
-                
+
                 userData.suspend = {
                     at: Date.now(),
                     until: suspendUntil,
@@ -3141,23 +3291,23 @@ async function performAntiShareCheck(userToken, userData, request, env, config, 
                     deviceCount: deviceCount,
                     failedAttempts: userData.stats.failedAttempts
                 };
-                
+
                 // 发送Telegram封禁通知
                 const unfreezeDate = new Date(suspendUntil).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
-                
+
                 // 格式化封禁时长
                 let durationText = '';
                 const days = config.antiShare.SUSPEND_DURATION_DAYS;
                 if (days >= 1) {
                     durationText = `${days}天`;
-                } else if (days >= 1/24) {
+                } else if (days >= 1 / 24) {
                     const hours = Math.round(days * 24);
                     durationText = `${hours}小时`;
                 } else {
                     const minutes = Math.round(days * 24 * 60);
                     durationText = `${minutes}分钟`;
                 }
-                
+
                 const additionalData = `*Token:* \`${userToken}\`
 *设备ID:* \`${deviceId}\`
 *城市:* \`${city}\`
@@ -3169,13 +3319,13 @@ async function performAntiShareCheck(userToken, userData, request, env, config, 
 - 失败尝试: \`${userData.stats.failedAttempts}\` 次（阈值: ${failedAttemptsThreshold}次）
 - 已有设备数: \`${deviceCount}\`
 - ⚠️ 疑似账号共享或滥用（频繁尝试添加超限设备）${remarkLine}`;
-                
+
                 context.waitUntil(sendNotificationIfEnabled('🚫 *账号已临时封禁*', additionalData, city));
                 console.log(`[AntiShare] Account ${userToken} suspended until ${unfreezeDate} (failedAttempts: ${userData.stats.failedAttempts})`);
-                
+
                 // 保存封禁状态
                 await storageAdapter.put(`user:${userToken}`, userData);
-                
+
                 return {
                     allowed: false,
                     reason: 'suspended',
@@ -3184,7 +3334,7 @@ async function performAntiShareCheck(userToken, userData, request, env, config, 
                 };
             }
         }
-        
+
         // 发送设备数超限通知
         if (config.telegram.NOTIFY_ON_DEVICE_LIMIT) {
             const additionalData = `*Token:* \`${userToken}\`
@@ -3198,10 +3348,10 @@ async function performAntiShareCheck(userToken, userData, request, env, config, 
 *失败尝试:* \`${userData.stats.failedAttempts}\` 次（阈值: ${config.antiShare.SUSPEND_FAILED_ATTEMPTS_THRESHOLD}次）${remarkLine}`;
             context.waitUntil(sendNotificationIfEnabled('🚫 *设备数超限*', additionalData, city));
         }
-        
+
         // 保存failedAttempts
         await storageAdapter.put(`user:${userToken}`, userData);
-        
+
         return {
             allowed: false,
             reason: 'device_limit',
@@ -3210,13 +3360,13 @@ async function performAntiShareCheck(userToken, userData, request, env, config, 
             failedAttempts: userData.stats.failedAttempts
         };
     }
-    
+
     // 5. 【城市检测前置】先检查城市，避免提前初始化设备
     // 判断是否需要城市检测（基于当前设备数，不包含新设备）
     // CITY_CHECK_START_INDEX 表示前N台畅通无阻，从第N+1台开始检测
     const potentialDeviceCount = isNewDevice ? deviceCount + 1 : deviceCount;
     const shouldCheckCity = potentialDeviceCount > config.antiShare.CITY_CHECK_START_INDEX;
-    
+
     // 【城市上限检测】始终执行，对所有设备都有效
     // 获取整个账户下所有设备的所有城市key（小写，去重）
     const allCityKeysSet = new Set();
@@ -3230,10 +3380,10 @@ async function performAntiShareCheck(userToken, userData, request, env, config, 
             }
         });
     });
-    
+
     const maxCities = config.antiShare.MAX_CITIES;
     const cityExists = allCityKeysSet.has(cityKey);
-    
+
     // 【硬性限制】城市总数不能超过 MAX_CITIES（对所有设备都适用）
     if (!cityExists && allCityKeysSet.size >= maxCities) {
         // 已达城市上限，拒绝新城市
@@ -3248,20 +3398,20 @@ async function performAntiShareCheck(userToken, userData, request, env, config, 
 *原因:* 账户已达城市上限（${maxCities}个城市），无法添加新城市${remarkLine}`;
             context.waitUntil(sendNotificationIfEnabled('🌍 *城市上限*', additionalData, city));
         }
-        
+
         // 记录失败尝试次数
         userData.stats.failedAttempts = (userData.stats.failedAttempts || 0) + 1;
-        
+
         // 🔍 立即检查是否需要触发封禁
         if (config.antiShare.SUSPEND_ENABLED) {
             const failedAttemptsThreshold = config.antiShare.SUSPEND_FAILED_ATTEMPTS_THRESHOLD;
-            
+
             if (userData.stats.failedAttempts >= failedAttemptsThreshold) {
                 // 触发临时封禁
                 const suspendDurationMs = config.antiShare.SUSPEND_DURATION_DAYS * 24 * 60 * 60 * 1000;
                 const suspendUntil = Date.now() + suspendDurationMs;
                 const suspendReason = `可疑的高频失败尝试（${userData.stats.failedAttempts}次失败尝试，疑似账号共享或滥用）`;
-                
+
                 userData.suspend = {
                     at: Date.now(),
                     until: suspendUntil,
@@ -3269,23 +3419,23 @@ async function performAntiShareCheck(userToken, userData, request, env, config, 
                     deviceCount: deviceCount,
                     failedAttempts: userData.stats.failedAttempts
                 };
-                
+
                 // 发送Telegram封禁通知
                 const unfreezeDate = new Date(suspendUntil).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
-                
+
                 // 格式化封禁时长
                 let durationText = '';
                 const days = config.antiShare.SUSPEND_DURATION_DAYS;
                 if (days >= 1) {
                     durationText = `${days}天`;
-                } else if (days >= 1/24) {
+                } else if (days >= 1 / 24) {
                     const hours = Math.round(days * 24);
                     durationText = `${hours}小时`;
                 } else {
                     const minutes = Math.round(days * 24 * 60);
                     durationText = `${minutes}分钟`;
                 }
-                
+
                 const additionalData = `*Token:* \`${userToken}\`
 *设备ID:* \`${deviceId}\`
 *城市:* \`${city}\`
@@ -3297,13 +3447,13 @@ async function performAntiShareCheck(userToken, userData, request, env, config, 
 - 失败尝试: \`${userData.stats.failedAttempts}\` 次（阈值: ${failedAttemptsThreshold}次）
 - 已有设备数: \`${deviceCount}\`
 - ⚠️ 尝试超过城市上限${remarkLine}`;
-                
+
                 context.waitUntil(sendNotificationIfEnabled('🚫 *账号已临时封禁*', additionalData, city));
                 console.log(`[AntiShare] Account ${userToken} suspended until ${unfreezeDate} (failedAttempts: ${userData.stats.failedAttempts})`);
-                
+
                 // 保存封禁状态
                 await storageAdapter.put(`user:${userToken}`, userData);
-                
+
                 return {
                     allowed: false,
                     reason: 'suspended',
@@ -3312,10 +3462,10 @@ async function performAntiShareCheck(userToken, userData, request, env, config, 
                 };
             }
         }
-        
+
         // 保存failedAttempts
         await storageAdapter.put(`user:${userToken}`, userData);
-        
+
         return {
             allowed: false,
             reason: 'city_limit_exceeded',
@@ -3324,7 +3474,7 @@ async function performAntiShareCheck(userToken, userData, request, env, config, 
             failedAttempts: userData.stats.failedAttempts
         };
     }
-    
+
     // 【可疑性检测】只在设备数达到阈值后才检测"新设备新城市"的可疑性
     if (shouldCheckCity) {
         if (isNewDevice) {
@@ -3346,20 +3496,20 @@ async function performAntiShareCheck(userToken, userData, request, env, config, 
 *原因:* 新设备访问新城市，请用常用节点或关闭代理后尝试更新${remarkLine}`;
                     context.waitUntil(sendNotificationIfEnabled('🚫 *新设备新城市*', additionalData, city));
                 }
-                
+
                 // 记录失败尝试次数
                 userData.stats.failedAttempts = (userData.stats.failedAttempts || 0) + 1;
-                
+
                 // 🔍 立即检查是否需要触发封禁
                 if (config.antiShare.SUSPEND_ENABLED) {
                     const failedAttemptsThreshold = config.antiShare.SUSPEND_FAILED_ATTEMPTS_THRESHOLD;
-                    
+
                     if (userData.stats.failedAttempts >= failedAttemptsThreshold) {
                         // 触发临时封禁
                         const suspendDurationMs = config.antiShare.SUSPEND_DURATION_DAYS * 24 * 60 * 60 * 1000;
                         const suspendUntil = Date.now() + suspendDurationMs;
                         const suspendReason = `可疑的高频失败尝试（${userData.stats.failedAttempts}次失败尝试，疑似账号共享或滥用）`;
-                        
+
                         userData.suspend = {
                             at: Date.now(),
                             until: suspendUntil,
@@ -3367,23 +3517,23 @@ async function performAntiShareCheck(userToken, userData, request, env, config, 
                             deviceCount: deviceCount,
                             failedAttempts: userData.stats.failedAttempts
                         };
-                        
+
                         // 发送Telegram封禁通知
                         const unfreezeDate = new Date(suspendUntil).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
-                        
+
                         // 格式化封禁时长
                         let durationText = '';
                         const days = config.antiShare.SUSPEND_DURATION_DAYS;
                         if (days >= 1) {
                             durationText = `${days}天`;
-                        } else if (days >= 1/24) {
+                        } else if (days >= 1 / 24) {
                             const hours = Math.round(days * 24);
                             durationText = `${hours}小时`;
                         } else {
                             const minutes = Math.round(days * 24 * 60);
                             durationText = `${minutes}分钟`;
                         }
-                        
+
                         const additionalData = `*Token:* \`${userToken}\`
 *设备ID:* \`${deviceId}\`
 *城市:* \`${city}\`
@@ -3395,13 +3545,13 @@ async function performAntiShareCheck(userToken, userData, request, env, config, 
 - 失败尝试: \`${userData.stats.failedAttempts}\` 次（阈值: ${failedAttemptsThreshold}次）
 - 已有设备数: \`${deviceCount}\`
 - ⚠️ 新设备访问新城市（可疑共享）`;
-                        
+
                         context.waitUntil(sendNotificationIfEnabled('🚫 *账号已临时封禁*', additionalData, city));
                         console.log(`[AntiShare] Account ${userToken} suspended until ${unfreezeDate} (failedAttempts: ${userData.stats.failedAttempts})`);
-                        
+
                         // 保存封禁状态
                         await storageAdapter.put(`user:${userToken}`, userData);
-                        
+
                         return {
                             allowed: false,
                             reason: 'suspended',
@@ -3410,10 +3560,10 @@ async function performAntiShareCheck(userToken, userData, request, env, config, 
                         };
                     }
                 }
-                
+
                 // 保存failedAttempts
                 await storageAdapter.put(`user:${userToken}`, userData);
-                
+
                 return {
                     allowed: false,
                     reason: 'new_device_new_city',
@@ -3439,20 +3589,20 @@ async function performAntiShareCheck(userToken, userData, request, env, config, 
 *原因:* 该城市非常用城市（账户已达${maxCities}个城市上限）${remarkLine}`;
                         context.waitUntil(sendNotificationIfEnabled('🌍 *城市异常*', additionalData, city));
                     }
-                    
+
                     // 记录失败尝试次数
                     userData.stats.failedAttempts = (userData.stats.failedAttempts || 0) + 1;
-                    
+
                     // 🔍 立即检查是否需要触发封禁
                     if (config.antiShare.SUSPEND_ENABLED) {
                         const failedAttemptsThreshold = config.antiShare.SUSPEND_FAILED_ATTEMPTS_THRESHOLD;
-                        
+
                         if (userData.stats.failedAttempts >= failedAttemptsThreshold) {
                             // 触发临时封禁
                             const suspendDurationMs = config.antiShare.SUSPEND_DURATION_DAYS * 24 * 60 * 60 * 1000;
                             const suspendUntil = Date.now() + suspendDurationMs;
                             const suspendReason = `可疑的高频失败尝试（${userData.stats.failedAttempts}次失败尝试，疑似账号共享或滥用）`;
-                            
+
                             userData.suspend = {
                                 at: Date.now(),
                                 until: suspendUntil,
@@ -3460,23 +3610,23 @@ async function performAntiShareCheck(userToken, userData, request, env, config, 
                                 deviceCount: deviceCount,
                                 failedAttempts: userData.stats.failedAttempts
                             };
-                            
+
                             // 发送Telegram封禁通知
                             const unfreezeDate = new Date(suspendUntil).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
-                            
+
                             // 格式化封禁时长
                             let durationText = '';
                             const days = config.antiShare.SUSPEND_DURATION_DAYS;
                             if (days >= 1) {
                                 durationText = `${days}天`;
-                            } else if (days >= 1/24) {
+                            } else if (days >= 1 / 24) {
                                 const hours = Math.round(days * 24);
                                 durationText = `${hours}小时`;
                             } else {
                                 const minutes = Math.round(days * 24 * 60);
                                 durationText = `${minutes}分钟`;
                             }
-                            
+
                             const additionalData = `*Token:* \`${userToken}\`
 *设备ID:* \`${deviceId}\`
 *城市:* \`${city}\`
@@ -3488,13 +3638,13 @@ async function performAntiShareCheck(userToken, userData, request, env, config, 
 - 失败尝试: \`${userData.stats.failedAttempts}\` 次（阈值: ${failedAttemptsThreshold}次）
 - 已有设备数: \`${deviceCount}\`
 - ⚠️ 已有设备访问新城市，超过城市上限${remarkLine}`;
-                            
+
                             context.waitUntil(sendNotificationIfEnabled('🚫 *账号已临时封禁*', additionalData, city));
                             console.log(`[AntiShare] Account ${userToken} suspended until ${unfreezeDate} (failedAttempts: ${userData.stats.failedAttempts})`);
-                            
+
                             // 保存封禁状态
                             await storageAdapter.put(`user:${userToken}`, userData);
-                            
+
                             return {
                                 allowed: false,
                                 reason: 'suspended',
@@ -3503,10 +3653,10 @@ async function performAntiShareCheck(userToken, userData, request, env, config, 
                             };
                         }
                     }
-                    
+
                     // 保存failedAttempts
                     await storageAdapter.put(`user:${userToken}`, userData);
-                    
+
                     return {
                         allowed: false,
                         reason: 'city_limit_exceeded',
@@ -3520,7 +3670,7 @@ async function performAntiShareCheck(userToken, userData, request, env, config, 
             // 1.1: 已存在设备 + 已存在城市 → ✅ 放行
         }
     }
-    
+
     // 6. 初始化设备（所有检测通过后才初始化）
     if (isNewDevice) {
         userData.devices[deviceId] = {
@@ -3532,7 +3682,7 @@ async function performAntiShareCheck(userToken, userData, request, env, config, 
             requestCount: 0,
             cities: {}
         };
-        
+
         // 发送新设备绑定成功通知
         if (config.telegram.NOTIFY_ON_NEW_DEVICE) {
             const newDeviceCount = Object.keys(userData.devices).length;
@@ -3546,16 +3696,16 @@ async function performAntiShareCheck(userToken, userData, request, env, config, 
             context.waitUntil(sendNotificationIfEnabled('✅ *新设备绑定成功*', additionalData, city));
         }
     }
-    
+
     const device = userData.devices[deviceId];
     const isNewCity = !device.cities[cityKey];
     const currentDeviceCount = Object.keys(userData.devices).length;
-    
+
     // 【检测3】访问次数限制（按 Asia/Shanghai 本地日期统计）
     const now = new Date();
     const shanghaiNow = new Date(now.getTime() + 8 * 60 * 60 * 1000);
     const today = shanghaiNow.toISOString().split('T')[0];
-    
+
     // 初始化或重置每日计数（每天本地 0 点重置）
     if (!userData.stats.dailyDate || userData.stats.dailyDate !== today) {
         userData.stats.dailyCount = 0;
@@ -3563,35 +3713,35 @@ async function performAntiShareCheck(userToken, userData, request, env, config, 
         userData.stats.failedAttempts = 0;  // 每天重置失败尝试计数
         userData.stats.rateLimitAttempts = 0;  // 每天重置达到上限后的尝试计数
     }
-    
+
     const rateLimit = config.antiShare.RATE_LIMITS[currentDeviceCount] || 999;
-    
+
     // 【检测3.1】触发临时封禁检测（检测账号共享行为）
     if (config.antiShare.SUSPEND_ENABLED) {
-        const deviceAtMax = config.antiShare.SUSPEND_REQUIRE_MAX_DEVICES 
+        const deviceAtMax = config.antiShare.SUSPEND_REQUIRE_MAX_DEVICES
             ? (currentDeviceCount >= config.antiShare.MAX_DEVICES)
             : true;
-        
+
         // 初始化计数器
         const failedAttempts = userData.stats.failedAttempts || 0;  // 其他失败（如新设备新城市）
         const rateLimitAttempts = userData.stats.rateLimitAttempts || 0;  // 达到上限后的失败次数
-        
+
         // 失败次数阈值（从配置读取）
         const rateLimitAttemptsThreshold = config.antiShare.SUSPEND_RATE_LIMIT_ATTEMPTS_THRESHOLD;
         const failedAttemptsThreshold = config.antiShare.SUSPEND_FAILED_ATTEMPTS_THRESHOLD;
-        
+
         // 条件1：达到上限后，失败次数过多（账号共享的关键证据）
         // rateLimitAttempts 只有在 dailyCount >= rateLimit 时才会增加，所以不需要额外判断
         const suspendByRateLimitAttempts = rateLimitAttempts >= rateLimitAttemptsThreshold;
-        
+
         // 条件2：其他类型的失败过多（如新设备新城市）
         const suspendByFailedAttempts = failedAttempts >= failedAttemptsThreshold;
-        
+
         if (deviceAtMax && (suspendByRateLimitAttempts || suspendByFailedAttempts)) {
             // 触发临时封禁
             const suspendDurationMs = config.antiShare.SUSPEND_DURATION_DAYS * 24 * 60 * 60 * 1000;
             const suspendUntil = Date.now() + suspendDurationMs;
-            
+
             // 根据触发原因生成不同的封禁理由
             let suspendReason = '';
             if (suspendByRateLimitAttempts) {
@@ -3601,7 +3751,7 @@ async function performAntiShareCheck(userToken, userData, request, env, config, 
             } else {
                 suspendReason = `Suspicious high-frequency access behavior.`;
             }
-            
+
             userData.suspend = {
                 at: Date.now(),
                 until: suspendUntil,
@@ -3610,23 +3760,23 @@ async function performAntiShareCheck(userToken, userData, request, env, config, 
                 dailyCount: userData.stats.dailyCount,
                 rateLimit
             };
-            
+
             // 发送Telegram封禁通知
             const unfreezeDate = new Date(suspendUntil).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
-            
+
             // 格式化封禁时长
             let durationText = '';
             const days = config.antiShare.SUSPEND_DURATION_DAYS;
             if (days >= 1) {
                 durationText = `${days}天`;
-            } else if (days >= 1/24) {
+            } else if (days >= 1 / 24) {
                 const hours = Math.round(days * 24);
                 durationText = `${hours}小时`;
             } else {
                 const minutes = Math.round(days * 24 * 60);
                 durationText = `${minutes}分钟`;
             }
-            
+
             let additionalData = `*Token:* \`${userToken}\`
 *设备ID:* \`${deviceId}\`
 *城市:* \`${city}\`
@@ -3635,7 +3785,7 @@ async function performAntiShareCheck(userToken, userData, request, env, config, 
 *解封时间:* \`${unfreezeDate}\`
 
 *触发原因:*`;
-            
+
             if (suspendByRateLimitAttempts) {
                 additionalData += `
 - 今日访问: \`${userData.stats.dailyCount}\` / \`${rateLimit}\` (${currentDeviceCount}台设备)
@@ -3654,14 +3804,14 @@ async function performAntiShareCheck(userToken, userData, request, env, config, 
             }
 
             additionalData += remarkLine;
-            
+
             context.waitUntil(sendNotificationIfEnabled('🚫 *账号已临时封禁*', additionalData, city));
-            
+
             console.log(`[AntiShare] Account ${userToken} suspended until ${unfreezeDate}`);
-            
+
             // 保存封禁状态
             await storageAdapter.put(`user:${userToken}`, userData);
-            
+
             return {
                 allowed: false,
                 reason: 'suspended',
@@ -3670,13 +3820,13 @@ async function performAntiShareCheck(userToken, userData, request, env, config, 
             };
         }
     }
-    
+
     // 【检测3.2】访问次数限制（已达上限）
     if (userData.stats.dailyCount >= rateLimit) {
         // 🔍 关键：记录达到上限后的尝试次数（用于检测账号共享）
         // 正常用户达到上限后不会继续访问，但共享账号会有多人继续尝试
         userData.stats.rateLimitAttempts = (userData.stats.rateLimitAttempts || 0) + 1;
-        
+
         // 发送Telegram通知
         if (config.telegram.NOTIFY_ON_RATE_LIMIT) {
             const additionalData = `*Token:* \`${userToken}\`
@@ -3689,10 +3839,10 @@ async function performAntiShareCheck(userToken, userData, request, env, config, 
 *重置时间:* 明天0点(UTC+8)${remarkLine}`;
             context.waitUntil(sendNotificationIfEnabled('⏰ *访问次数超限*', additionalData, city));
         }
-        
+
         // 保存rateLimitAttempts
         await storageAdapter.put(`user:${userToken}`, userData);
-        
+
         return {
             allowed: false,
             reason: 'rate_limit',
@@ -3702,7 +3852,7 @@ async function performAntiShareCheck(userToken, userData, request, env, config, 
             rateLimitAttempts: userData.stats.rateLimitAttempts
         };
     }
-    
+
     // ✅ 通过所有检测
     // 更新设备统计
     if (!device.name) {
@@ -3710,7 +3860,7 @@ async function performAntiShareCheck(userToken, userData, request, env, config, 
     }
     device.lastSeen = Date.now();
     device.requestCount++;
-    
+
     // 记录城市（不限制数量）
     if (!device.cities[cityKey]) {
         device.cities[cityKey] = {
@@ -3722,21 +3872,21 @@ async function performAntiShareCheck(userToken, userData, request, env, config, 
             count: 0
         };
     }
-    
+
     // 兼容旧数据：如果已存在的城市没有 IP 字段，补充当前 IP
     if (!device.cities[cityKey].ip) {
         device.cities[cityKey].ip = clientIp;
     }
-    
+
     device.cities[cityKey].lastSeen = Date.now();
     device.cities[cityKey].count++;
-    
+
     // 更新每日计数
     userData.stats.dailyCount++;
-    
+
     // 注意：不在这里保存KV，由调用方统一保存
     // 这样避免重复保存，提高性能
-    
+
     return {
         allowed: true,
         deviceId,
@@ -3746,9 +3896,9 @@ async function performAntiShareCheck(userToken, userData, request, env, config, 
     };
 }
 
-const proxyClientKeywords = ['shadowrocket', 'quantumult', 'surge', 'loon', 'clash', 'openclash', 'stash', 'pharos', 
-                             'v2rayn', 'v2rayng', 'kitsunebi', 'i2ray', 'pepi', 'potatso', 'netch',
-                             'qv2ray', 'mellow', 'trojan', 'shadowsocks', 'surfboard', 'sing-box', 'singbox', 'nekobox'];
+const proxyClientKeywords = ['shadowrocket', 'quantumult', 'surge', 'loon', 'clash', 'openclash', 'stash', 'pharos',
+    'v2rayn', 'v2rayng', 'kitsunebi', 'i2ray', 'pepi', 'potatso', 'netch',
+    'qv2ray', 'mellow', 'trojan', 'shadowsocks', 'surfboard', 'sing-box', 'singbox', 'nekobox'];
 
 /**
  * 检测是否为浏览器访问
@@ -3757,10 +3907,10 @@ const proxyClientKeywords = ['shadowrocket', 'quantumult', 'surge', 'loon', 'cla
  */
 function isBrowserAccess(userAgent) {
     const browserKeywords = ['mozilla', 'chrome', 'safari', 'firefox', 'edge', 'opera', 'msie', 'trident'];
-    
+
     const lowerUA = userAgent.toLowerCase();
     return browserKeywords.some(keyword => lowerUA.includes(keyword)) &&
-           !proxyClientKeywords.some(keyword => lowerUA.includes(keyword));
+        !proxyClientKeywords.some(keyword => lowerUA.includes(keyword));
 }
 
 function isSupportedProxyClient(userAgent) {
@@ -3937,7 +4087,7 @@ async function handleUserSubscription(userToken, profileId, profileToken, reques
     try {
         const url = new URL(request.url);
         const adminKey = url.searchParams.get('admin_key');
-        
+
         // 【安全检查】userToken 必须存在，或者提供有效的管理员 Key
         if (!userToken) {
             // 检查是否提供了管理员 Key
@@ -3953,7 +4103,7 @@ async function handleUserSubscription(userToken, profileId, profileToken, reques
                     }
                 });
             }
-            
+
             // 验证管理员 Key
             const storageAdapter = await getStorageAdapter(env);
             const settings = await storageAdapter.get(KV_KEY_SETTINGS) || {};
@@ -3969,45 +4119,45 @@ async function handleUserSubscription(userToken, profileId, profileToken, reques
                     }
                 });
             }
-            
+
             console.log('[Admin] Admin access granted for profile: ' + profileId);
         }
-        
+
         // 【优先级0】订阅转换器回调请求处理（必须在所有检测之前）
         const callbackToken = await getCallbackToken(env);
         if (url.searchParams.get('callback_token') === callbackToken) {
             console.log('[Callback] Subconverter callback request, returning node list directly');
-            
+
             // 加载用户数据
             const storageAdapter = await getStorageAdapter(env);
             const userDataRaw = await storageAdapter.get(`user:${userToken}`);
             if (!userDataRaw) {
                 return new Response('User not found', { status: 404 });
             }
-            
+
             const userData = typeof userDataRaw === 'string' ? JSON.parse(userDataRaw) : userDataRaw;
-            
+
             // 加载订阅组配置
             const allProfiles = await storageAdapter.get(KV_KEY_PROFILES) || [];
-            const profile = allProfiles.find(p => 
+            const profile = allProfiles.find(p =>
                 (p.customId && p.customId === profileId) || p.id === profileId
             );
-            
+
             if (!profile || !profile.enabled) {
                 return new Response('Profile not found', { status: 404 });
             }
-            
+
             const allMisubs = await storageAdapter.get(KV_KEY_SUBS) || [];
             const profileSubIds = new Set(profile.subscriptions);
             const profileNodeIds = new Set(profile.manualNodes);
             const targetMisubs = allMisubs.filter(item => {
                 const isSubscription = item.url.startsWith('http');
                 const isManualNode = !isSubscription;
-                const belongsToProfile = (isSubscription && profileSubIds.has(item.id)) || 
-                                        (isManualNode && profileNodeIds.has(item.id));
+                const belongsToProfile = (isSubscription && profileSubIds.has(item.id)) ||
+                    (isManualNode && profileNodeIds.has(item.id));
                 return item.enabled && belongsToProfile;
             });
-            
+
             // 生成节点列表
             const nodeLinks = await generateCombinedNodeList(
                 { request, env },
@@ -4017,12 +4167,12 @@ async function handleUserSubscription(userToken, profileId, profileToken, reques
                 '',
                 profile?.prefixSettings || null
             );
-            
+
             // 调试日志
             const nodeCount = nodeLinks.split('\n').filter(line => line.trim()).length;
             console.log(`[Callback] Returning ${nodeCount} nodes to subconverter`);
             console.log(`[Callback] Node preview: ${nodeLinks.substring(0, 200)}`);
-            
+
             // 返回base64编码的节点列表
             const base64Content = btoa(unescape(encodeURIComponent(nodeLinks)));
             return new Response(base64Content, {
@@ -4032,9 +4182,9 @@ async function handleUserSubscription(userToken, profileId, profileToken, reques
                 }
             });
         }
-        
+
         const asyncConfig = getConfig();
-        
+
         // 0. 🔒 优先检测Bot请求（保护节点隐私）
         const userAgent = request.headers.get('User-Agent') || 'Unknown';
         let isBotRequest = false;
@@ -4043,16 +4193,16 @@ async function handleUserSubscription(userToken, profileId, profileToken, reques
             const botPattern = new RegExp(botKeywords, 'i');
             isBotRequest = botPattern.test(userAgent);
         }
-        
+
         if (isBotRequest) {
             // 🔒 拒绝所有Bot访问，防止节点信息泄露
             console.log(`🤖 Blocked bot/crawler request from: ${userAgent}`);
-            return new Response('Access Denied: Bot requests are not allowed', { 
+            return new Response('Access Denied: Bot requests are not allowed', {
                 status: 403,
                 headers: { 'Content-Type': 'text/plain' }
             });
         }
-        
+
         // 0.4 🎯 仅允许已知代理客户端访问（拦截脚本/未知 UA）
         if (!isBrowserAccess(userAgent) && !isSupportedProxyClient(userAgent)) {
             console.warn(`[Security] Blocked non-proxy client UA: ${userAgent}`);
@@ -4065,70 +4215,70 @@ async function handleUserSubscription(userToken, profileId, profileToken, reques
                 }
             });
         }
-        
+
         // 0.5 🌐 检测浏览器访问（只允许代理客户端访问）
         if (isBrowserAccess(userAgent)) {
             console.log(`🌐 Blocked browser request from: ${userAgent}`);
             return getBrowserBlockedResponse();
         }
-        
+
         // 1. 验证profileToken
         if (profileToken !== config.profileToken) {
             return new Response('Invalid Profile Token', { status: 403 });
         }
-        
+
         // 2. 加载用户数据
         const storageAdapter = await getStorageAdapter(env);
         const userDataRaw = await storageAdapter.get(`user:${userToken}`);
         if (!userDataRaw) {
             return new Response('订阅链接无效或已被删除', { status: 404 });
         }
-        
+
         const userData = typeof userDataRaw === 'string' ? JSON.parse(userDataRaw) : userDataRaw;
-        
+
         // 3. 验证profileId匹配（支持 id 和 customId）
         // 加载所有 profiles 以获取 customId 信息
         const allProfilesForMatch = await storageAdapter.get(KV_KEY_PROFILES) || [];
         const targetProfile = allProfilesForMatch.find(p => p.id === userData.profileId);
-        
+
         // 检查 URL 中的 profileId 是否匹配用户数据中的 profile.id 或其 customId
-        const profileIdMatches = profileId === userData.profileId || 
-                                (targetProfile && profileId === targetProfile.customId);
-        
+        const profileIdMatches = profileId === userData.profileId ||
+            (targetProfile && profileId === targetProfile.customId);
+
         if (!profileIdMatches) {
             return new Response('订阅组不匹配', { status: 403 });
         }
 
         // 3.1 🔧 加载订阅组配置（用于到期签名与反共享策略解析）
-        const profile = allProfilesForMatch.find(p => 
+        const profile = allProfilesForMatch.find(p =>
             (p.customId && p.customId === profileId) || p.id === profileId
         );
-        
+
         if (!profile || !profile.enabled) {
             return new Response('订阅组不存在或已禁用', { status: 403 });
         }
-        
+
         // 4. 记录是否为首次激活
         const isFirstActivation = userData.status === 'pending';
-        
+
         // 5. 首次激活处理
         if (isFirstActivation) {
             userData.status = 'activated';
             userData.activatedAt = Date.now();
             userData.expiresAt = Date.now() + userData.duration;
         }
-        
+
         // 6. 检查是否过期
         const now = Date.now();
         let expiresAtTime = userData.expiresAt;
-        
+
         // 处理 expiresAt 的格式（可能是字符串或时间戳）
         if (typeof userData.expiresAt === 'string') {
             expiresAtTime = new Date(userData.expiresAt).getTime();
         }
-        
+
         console.log(`[UserSub] Expiry check - userToken: ${userToken}, expiresAt: ${userData.expiresAt}, expiresAtTime: ${expiresAtTime}, now: ${now}, isExpired: ${expiresAtTime && now > expiresAtTime}`);
-        
+
         if (expiresAtTime && now > expiresAtTime) {
             console.log(`[UserSub] User ${userToken} subscription expired!`);
             const expiredNode = `trojan://00000000-0000-0000-0000-000000000000@127.0.0.1:443#${encodeURIComponent('订阅已过期')}`;
@@ -4146,7 +4296,7 @@ async function handleUserSubscription(userToken, profileId, profileToken, reques
             noticeNodes.push(
                 `trojan://00000000-0000-0000-0000-000000000000@127.0.0.1:443#${encodeURIComponent('Token: ' + userToken)}`
             );
-            
+
             const expiredContent = [expiredNode, ...noticeNodes].join('\n');
             return new Response(btoa(unescape(encodeURIComponent(expiredContent))), {
                 headers: {
@@ -4156,7 +4306,7 @@ async function handleUserSubscription(userToken, profileId, profileToken, reques
                 }
             });
         }
-        
+
         // 6.4 🎯 解析该分组和用户的反共享配置（按优先级合并）
         const effectiveAntiShareConfig = resolveAntiShareConfig(profile, userData, asyncConfig);
         console.log(`[AntiShare] Resolved config for profile ${profileId}, user ${userToken}:`, {
@@ -4171,11 +4321,11 @@ async function handleUserSubscription(userToken, profileId, profileToken, reques
             SUSPEND_FAILED_ATTEMPTS_THRESHOLD: effectiveAntiShareConfig.SUSPEND_FAILED_ATTEMPTS_THRESHOLD,
             RATE_LIMITS: effectiveAntiShareConfig.RATE_LIMITS
         });
-        
+
         if (!profile.policyKey && !profile.antiShareOverrides) {
             console.warn(`[AntiShare] ⚠️ Profile ${profileId} has no policyKey or overrides, using global default config`);
         }
-        
+
         // 6.5 🛡️ 反共享检测（使用分组和用户的有效配置）
         const antiShareResult = await performAntiShareCheck(
             userToken,
@@ -4187,77 +4337,77 @@ async function handleUserSubscription(userToken, profileId, profileToken, reques
             context,
             profile  // 传入 profile 对象，用于检查是否在测试模式
         );
-        
+
         if (!antiShareResult.allowed) {
             // 检测是否是Clash客户端
             const isClashClient = /clash|meta|mihomo/i.test(userAgent);
-            
+
             let errorMessage = '';
-            
+
             switch (antiShareResult.reason) {
                 case 'suspended':
                     errorMessage = `account suspended - ${antiShareResult.suspendReason}`;
                     break;
-                    
+
                 case 'device_limit':
                     errorMessage = `reach device limit`;
                     break;
-                    
+
                 case 'new_device_new_city':
                     errorMessage = `new device new city - suspected sharing behavior`;
                     break;
-                    
+
                 case 'city_limit_exceeded':
                     errorMessage = `city limit exceeded - account reached ${antiShareResult.currentCityCount}/${antiShareResult.maxCities} cities`;
                     break;
-                    
+
                 case 'existing_device_new_city':
                     errorMessage = `city exception - this city is not a common city`;
                     break;
-                    
+
                 case 'rate_limit':
                     errorMessage = `rate limit - today has visited ${antiShareResult.dailyCount}/${antiShareResult.rateLimit} times`;
                     break;
             }
-            
+
             // 🔧 对于需要完整配置文件的客户端，生成错误配置
             if (isClashClient) {
                 console.log(`[AntiShare] Clash client detected, returning error proxy config`);
-                
+
                 // 保存userData的更改
                 await storageAdapter.put(`user:${userToken}`, userData);
                 console.log(`[AntiShare] Saved userData after rejection (failedAttempts: ${userData.stats.failedAttempts || 0}, suspended: ${!!userData.suspend})`);
-                
+
                 return generateErrorConfig('clash', errorMessage);
             }
-            
+
             // 检测其他需要完整配置的客户端
             const isSurgeClient = /surge/i.test(userAgent);
             const isLoonClient = /loon/i.test(userAgent);
-            
+
             if (isSurgeClient) {
                 console.log(`[AntiShare] Surge client detected, returning error proxy config`);
-                
+
                 // 保存userData的更改
                 await env.MISUB_KV.put(`user:${userToken}`, JSON.stringify(userData));
                 console.log(`[AntiShare] Saved userData after rejection (failedAttempts: ${userData.stats.failedAttempts || 0}, suspended: ${!!userData.suspend})`);
-                
+
                 return generateErrorConfig('surge', errorMessage);
             }
-            
+
             if (isLoonClient) {
                 console.log(`[AntiShare] Loon client detected, returning error proxy config`);
-                
+
                 // 保存userData的更改
                 await env.MISUB_KV.put(`user:${userToken}`, JSON.stringify(userData));
                 console.log(`[AntiShare] Saved userData after rejection (failedAttempts: ${userData.stats.failedAttempts || 0}, suspended: ${!!userData.suspend})`);
-                
+
                 return generateErrorConfig('loon', errorMessage);
             }
-            
+
             // 对于其他客户端（Shadowrocket/Loon），返回base64编码的错误文本
             let errorContent = '';
-            
+
             switch (antiShareResult.reason) {
                 case 'suspended':
                     errorContent = generateSuspendError(
@@ -4265,25 +4415,25 @@ async function handleUserSubscription(userToken, profileId, profileToken, reques
                         antiShareResult.suspendReason
                     );
                     break;
-                    
+
                 case 'device_limit':
                     errorContent = generateDeviceLimitError(
                         antiShareResult.deviceCount,
                         antiShareResult.maxDevices
                     );
                     break;
-                    
+
                 case 'new_device_new_city':
                     errorContent = generateNewDeviceNewCityError();
                     break;
-                    
+
                 case 'city_limit_exceeded':
                     errorContent = generateCityLimitError(
                         antiShareResult.currentCityCount,
                         antiShareResult.maxCities
                     );
                     break;
-                    
+
                 case 'existing_device_new_city':
                     errorContent = generateExistingDeviceNewCityError(
                         antiShareResult.deviceId,
@@ -4293,7 +4443,7 @@ async function handleUserSubscription(userToken, profileId, profileToken, reques
                         antiShareResult.maxCities
                     );
                     break;
-                    
+
                 case 'rate_limit':
                     errorContent = generateRateLimitError(
                         antiShareResult.dailyCount,
@@ -4302,12 +4452,12 @@ async function handleUserSubscription(userToken, profileId, profileToken, reques
                     );
                     break;
             }
-            
+
             // ⚠️ 重要：保存userData的更改（失败计数器、封禁状态等）
             // 即使请求被拒绝，也要保存这些统计信息
             await storageAdapter.put(`user:${userToken}`, userData);
             console.log(`[AntiShare] Saved userData after rejection (failedAttempts: ${userData.stats.failedAttempts || 0}, suspended: ${!!userData.suspend})`);
-            
+
             return new Response(btoa(unescape(encodeURIComponent(errorContent))), {
                 status: 200,
                 headers: {
@@ -4316,25 +4466,25 @@ async function handleUserSubscription(userToken, profileId, profileToken, reques
                 }
             });
         }
-        
+
         // 7. 更新访问统计（暂不保存，等订阅内容成功生成后再保存）
         userData.stats.totalRequests = (userData.stats.totalRequests || 0) + 1;
         userData.stats.lastRequest = Date.now();
         // ⚠️ 注意：KV 保存已移到订阅内容成功生成之后，避免订阅转换器失败时设备配额被占用
-        
+
         // 8. 发送Telegram通知
         // 【通知检查】检查是否应该发送激活/访问通知
         const telegramConfig = asyncConfig.telegram;
         const shouldDisableNotifications = !telegramConfig.GLOBAL_NOTIFY_ENABLED;
         const isTestMode = profile && profile.policyKey === 'basic' && telegramConfig.DISABLE_NOTIFY_IN_TEST_MODE;
         const shouldSendAccessNotifications = !shouldDisableNotifications && !isTestMode;
-        
+
         if (config.BotToken && config.ChatID && shouldSendAccessNotifications) {
             const domain = new URL(request.url).hostname;
             const lastAccessTime = new Date(userData.stats.lastRequest).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
             const expiresTime = userData.expiresAt ? new Date(userData.expiresAt).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }) : 'N/A';
             const remarkLine = userData.remark ? `\n*备注:* \`${userData.remark}\`` : '';
-            
+
             if (isFirstActivation) {
                 // 首次激活：发送激活通知（包含所有信息）
                 const activatedTime = new Date(userData.activatedAt).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
@@ -4345,7 +4495,7 @@ async function handleUserSubscription(userToken, profileId, profileToken, reques
 *总访问次数:* \`${userData.stats.totalRequests}\`
 *激活时间:* \`${activatedTime}\`
 *到期时间:* \`${expiresTime}\`${remarkLine}`;
-                
+
                 context.waitUntil(sendEnhancedTgNotification(config, '✅ *订阅已激活*', request, additionalData));
             } else {
                 // 后续访问：发送访问通知
@@ -4358,32 +4508,32 @@ async function handleUserSubscription(userToken, profileId, profileToken, reques
 *总访问次数:* \`${userData.stats.totalRequests}\`
 *上次访问:* \`${lastAccessTime}\`
 *到期时间:* \`${expiresTime}\`${remarkLine}`;
-                
+
                 context.waitUntil(sendEnhancedTgNotification(config, '🛰️ *订阅被访问*', request, additionalData));
             }
         }
-        
+
         // 8. 加载所有订阅和手动节点（profile已在反共享检测前加载）
         const allMisubs = await storageAdapter.get(KV_KEY_SUBS) || [];
         const profileSubIds = new Set(profile.subscriptions || []);
         const profileNodeIds = new Set(profile.manualNodes || []);
-        
+
         const targetMisubs = allMisubs.filter(item => {
             const isSubscription = item.url.startsWith('http');
             const isManualNode = !isSubscription;
-            const belongsToProfile = (isSubscription && profileSubIds.has(item.id)) || 
-                                    (isManualNode && profileNodeIds.has(item.id));
+            const belongsToProfile = (isSubscription && profileSubIds.has(item.id)) ||
+                (isManualNode && profileNodeIds.has(item.id));
             return item.enabled && belongsToProfile;
         });
-        
+
         // 9. 获取订阅组的配置
-        const effectiveSubConverter = profile.subConverter && profile.subConverter.trim() !== '' 
-            ? profile.subConverter 
+        const effectiveSubConverter = profile.subConverter && profile.subConverter.trim() !== ''
+            ? profile.subConverter
             : config.subConverter;
-        const effectiveSubConfig = profile.subConfig && profile.subConfig.trim() !== '' 
-            ? profile.subConfig 
+        const effectiveSubConfig = profile.subConfig && profile.subConfig.trim() !== ''
+            ? profile.subConfig
             : config.subConfig;
-        
+
         // 10. 生成订阅内容（使用现有逻辑）
         const nodeLinks = await generateCombinedNodeList(
             { request, env },
@@ -4393,33 +4543,33 @@ async function handleUserSubscription(userToken, profileId, profileToken, reques
             '', // 不需要prepend内容
             profile?.prefixSettings || null
         );
-        
+
         // 调试日志
         console.log(`[UserSub] userToken: ${userToken}, profileId: ${profileId}`);
         console.log(`[UserSub] targetMisubs count: ${targetMisubs.length}`);
         console.log(`[UserSub] nodeLinks length: ${nodeLinks?.length || 0}`);
         console.log(`[UserSub] nodeLinks preview: ${nodeLinks?.substring(0, 100)}`);
-        
+
         // 11. 判断目标格式（复用公共函数，如果格式需要SubConfig但未配置则降级到base64）
         const targetFormat = determineTargetFormat(url, userAgent, effectiveSubConfig);
-        
+
         // 12. 如果是base64格式，直接返回
         if (targetFormat === 'base64') {
             const base64Content = btoa(unescape(encodeURIComponent(nodeLinks)));
-            
+
             // ✅ 订阅内容已成功生成，保存（包含设备绑定、访问统计等）
             await storageAdapter.put(`user:${userToken}`, userData);
-            
+
             // 【修复】处理 expiresAt 格式（可能是字符串或时间戳）
             let expiresAtTimestamp = userData.expiresAt;
             if (typeof userData.expiresAt === 'string') {
                 expiresAtTimestamp = new Date(userData.expiresAt).getTime();
             }
-            
+
             // 【新增】获取总流量（从 profile.totalBandwidth 或使用默认值）
             const totalBandwidthBytes = parseBandwidthToBytes(profile.totalBandwidth);
             console.log(`[Base64] Profile totalBandwidth: "${profile.totalBandwidth}", Parsed bytes: ${totalBandwidthBytes}`);
-            
+
             return new Response(base64Content, {
                 headers: {
                     'Content-Type': 'text/plain; charset=utf-8',
@@ -4430,30 +4580,30 @@ async function handleUserSubscription(userToken, profileId, profileToken, reques
                 }
             });
         }
-        
+
         // 13. 其他格式：通过订阅转换器处理（复用公共函数）
         if (!effectiveSubConverter || effectiveSubConverter.trim() === '') {
             return new Response('Subconverter backend is not configured.', { status: 500 });
         }
-        
+
         const callbackPath = `/${profileToken}/${profileId}/${userToken}`;
-        
+
         // 【修复】处理 expiresAt 格式（可能是字符串或时间戳）
         let expiresAtTimestamp = userData.expiresAt;
         if (typeof userData.expiresAt === 'string') {
             expiresAtTimestamp = new Date(userData.expiresAt).getTime();
         }
-        
+
         // 【新增】获取总流量（从 profile.totalBandwidth 或使用默认值）
         const totalBandwidthBytes = parseBandwidthToBytes(profile.totalBandwidth);
         console.log(`[Subconverter] Profile totalBandwidth: "${profile.totalBandwidth}", Parsed bytes: ${totalBandwidthBytes}`);
-        
+
         const additionalHeaders = {
             'Subscription-UserInfo': `upload=0; download=0; total=${totalBandwidthBytes}; expire=${Math.floor(expiresAtTimestamp / 1000)}`,
             'Profile-Update-Interval': '24',
             'Profile-Title': profile.name || config.FileName
         };
-        
+
         // 调用订阅转换器
         const subconverterResponse = await processViaSubconverter(
             nodeLinks,
@@ -4466,7 +4616,7 @@ async function handleUserSubscription(userToken, profileId, profileToken, reques
             profile.name || config.FileName,
             additionalHeaders
         );
-        
+
         // ✅ 只有订阅转换成功（2xx状态），才保存 KV
         if (subconverterResponse.ok) {
             await storageAdapter.put(`user:${userToken}`, userData);
@@ -4474,7 +4624,7 @@ async function handleUserSubscription(userToken, profileId, profileToken, reques
         } else {
             console.warn(`[UserSub] ⚠️ Subscription conversion failed (${subconverterResponse.status}), KV NOT saved to prevent device quota waste`);
         }
-        
+
         return subconverterResponse;
     } catch (error) {
         // 捕获所有错误并返回详细信息
@@ -4482,7 +4632,7 @@ async function handleUserSubscription(userToken, profileId, profileToken, reques
         const errorNode = `trojan://00000000-0000-0000-0000-000000000000@127.0.0.1:443#${encodeURIComponent('❌ 订阅处理错误')}`;
         const errorDetails = `trojan://00000000-0000-0000-0000-000000000000@127.0.0.1:443#${encodeURIComponent('错误: ' + error.message)}`;
         const errorContent = [errorNode, errorDetails].join('\n');
-        
+
         return new Response(btoa(unescape(encodeURIComponent(errorContent))), {
             headers: {
                 'Content-Type': 'text/plain; charset=utf-8',
@@ -4500,15 +4650,15 @@ async function handleMisubRequest(context) {
 
     // 【优先级最高】检测订阅转换器请求（必须在浏览器检测之前）
     // 订阅转换器的UA通常是"Mozilla/5.0"，但有特征请求头
-    const isSubconverterRequest = 
+    const isSubconverterRequest =
         request.headers.get('subconverter-request') === '1' ||
         request.headers.has('subconverter-version') ||
         url.searchParams.has('callback_token');
-    
+
     if (isSubconverterRequest) {
         console.log(`[Subconverter] Detected subconverter request, bypassing browser check`);
     }
-    
+
     // 🌐 检测浏览器访问（只允许代理客户端访问）
     // 但要排除订阅转换器的callback请求
     if (!isSubconverterRequest && isBrowserAccess(userAgentHeader)) {
@@ -4526,7 +4676,7 @@ async function handleMisubRequest(context) {
     const allMisubs = misubsData || [];
     const allProfiles = profilesData || [];
     // 关键：我们在这里定义了 `config`，后续都应该使用它
-    const config = migrateConfigSettings({ ...defaultSettings, ...settings }); 
+    const config = migrateConfigSettings({ ...defaultSettings, ...settings });
 
     let token = '';
     let profileIdentifier = null;
@@ -4552,7 +4702,7 @@ async function handleMisubRequest(context) {
         // 查询参数（兜底）
         token = url.searchParams.get('token');
     }
-    
+
     // 如果是三段式URL（用户订阅），使用专门的处理函数
     if (userToken) {
         return await handleUserSubscription(userToken, profileIdentifier, token, request, env, config, context);
@@ -4578,12 +4728,12 @@ async function handleMisubRequest(context) {
         const adminKey = url.searchParams.get('admin_key');
         const callbackToken = url.searchParams.get('callback_token');
         const validCallbackToken = await getCallbackToken(env);
-        
+
         const hasValidAdminKey = adminKey && adminKey === config.adminKey;
         const hasValidCallbackToken = callbackToken === validCallbackToken;
-        
+
         console.log(`[Security] Two-segment URL check: profileIdentifier=${profileIdentifier}, hasValidAdminKey=${hasValidAdminKey}, hasValidCallbackToken=${hasValidCallbackToken}`);
-        
+
         if (!hasValidAdminKey && !hasValidCallbackToken) {
             // 返回错误节点而不是 403，防止客户端使用缓存
             const errorNode = `trojan://00000000-0000-0000-0000-000000000000@127.0.0.1:443#${encodeURIComponent('订阅链接异常')}`;
@@ -4596,7 +4746,7 @@ async function handleMisubRequest(context) {
                 }
             });
         }
-        
+
         const profile = allProfiles.find(p => (p.customId && p.customId === profileIdentifier) || p.id === profileIdentifier);
         if (profile && profile.enabled) {
             // Check if the profile has an expiration date and if it's expired
@@ -4652,7 +4802,7 @@ async function handleMisubRequest(context) {
     if (!effectiveSubConverter || effectiveSubConverter.trim() === '') {
         return new Response('Subconverter backend is not configured.', { status: 500 });
     }
-    
+
     // 复用公共函数判断目标格式（如果格式需要SubConfig但未配置则降级到base64）
     const targetFormat = determineTargetFormat(url, userAgentHeader, effectiveSubConfig);
 
@@ -4660,9 +4810,9 @@ async function handleMisubRequest(context) {
         const clientIp = request.headers.get('CF-Connecting-IP') || 'N/A';
         const country = request.headers.get('CF-IPCountry') || 'N/A';
         const domain = url.hostname;
-        
+
         let additionalData = `*域名:* \`${domain}\`\n*客户端:* \`${userAgentHeader}\`\n*请求格式:* \`${targetFormat}\``;
-        
+
         let profileForNotification = null;
         if (profileIdentifier) {
             additionalData += `\n*订阅组:* \`${subName}\``;
@@ -4672,14 +4822,14 @@ async function handleMisubRequest(context) {
                 additionalData += `\n*到期时间:* \`${expiryDateStr}\``;
             }
         }
-        
+
         // 【通知检查】检查是否应该发送访问通知
         const asyncConfig = getConfig();
         const telegramConfig = asyncConfig.telegram;
         const shouldDisableNotifications = !telegramConfig.GLOBAL_NOTIFY_ENABLED;
         const isTestMode = profileForNotification && profileForNotification.policyKey === 'basic' && telegramConfig.DISABLE_NOTIFY_IN_TEST_MODE;
         const shouldSendAccessNotifications = !shouldDisableNotifications && !isTestMode;
-        
+
         // 使用增强版TG通知，包含IP地理位置信息
         if (shouldSendAccessNotifications) {
             context.waitUntil(sendEnhancedTgNotification(config, '🛰️ *订阅被访问*', request, additionalData));
@@ -4708,10 +4858,10 @@ async function handleMisubRequest(context) {
     }
 
     const combinedNodeList = await generateCombinedNodeList(
-        context, 
-        config, 
-        userAgentHeader, 
-        targetMisubs, 
+        context,
+        config,
+        userAgentHeader,
+        targetMisubs,
         prependedContentForSubconverter,
         profileIdentifier ? allProfiles.find(p => (p.customId && p.customId === profileIdentifier) || p.id === profileIdentifier)?.prefixSettings : null
     );
