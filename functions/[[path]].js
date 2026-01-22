@@ -267,6 +267,67 @@ const defaultSettings = {
     IPDataAPIKey: '' // ipdata.co API Key（准确，1500次/天）
 };
 
+// --- 订阅源缓存配置 ---
+const SUB_CACHE_PREFIX = 'sub_cache:';
+const SUB_CACHE_TTL = 300; // 订阅源缓存 5 分钟
+
+/**
+ * 带缓存的订阅源内容获取
+ * @param {Object} env - Cloudflare 环境对象
+ * @param {Object} sub - 订阅源对象
+ * @param {Object} requestHeaders - 请求头
+ * @param {number} timeout - 超时时间（毫秒）
+ * @returns {Promise<string>} - 订阅内容
+ */
+async function fetchSubscriptionWithCache(env, sub, requestHeaders, timeout = 8000) {
+    const cacheKey = SUB_CACHE_PREFIX + sub.id;
+
+    try {
+        // 1. 尝试从缓存获取
+        const cached = await env.MISUB_KV.get(cacheKey, 'text');
+        if (cached) {
+            console.log(`[SubCache] Cache hit for ${sub.name || sub.id}`);
+            return cached;
+        }
+    } catch (e) {
+        console.warn(`[SubCache] Cache read error: ${e.message}`);
+    }
+
+    // 2. 缓存未命中，拉取订阅
+    console.log(`[SubCache] Cache miss, fetching ${sub.name || sub.id}`);
+    try {
+        const response = await Promise.race([
+            fetch(new Request(sub.url, {
+                headers: requestHeaders,
+                redirect: "follow",
+                cf: {
+                    insecureSkipVerify: true,
+                    allowUntrusted: true,
+                    validateCertificate: false
+                }
+            })),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('Request timed out')), timeout))
+        ]);
+
+        if (!response.ok) {
+            console.warn(`[SubCache] Fetch failed for ${sub.name}: status ${response.status}`);
+            return '';
+        }
+
+        const text = await response.text();
+
+        // 3. 存入缓存（异步，不阻塞返回）
+        env.MISUB_KV.put(cacheKey, text, { expirationTtl: SUB_CACHE_TTL }).catch(e => {
+            console.warn(`[SubCache] Cache write error: ${e.message}`);
+        });
+
+        return text;
+    } catch (e) {
+        console.warn(`[SubCache] Fetch error for ${sub.name}: ${e.message}`);
+        return '';
+    }
+}
+
 const formatBytes = (bytes, decimals = 2) => {
     if (!+bytes || bytes < 0) return '0 B';
     const k = 1024;
@@ -2438,23 +2499,14 @@ async function generateCombinedNodeList(context, config, userAgent, misubs, prep
             // 使用处理后的用户代理
             const processedUserAgent = getProcessedUserAgent(userAgent, sub.url);
             const requestHeaders = { 'User-Agent': processedUserAgent };
-            const response = await Promise.race([
-                fetch(new Request(sub.url, {
-                    headers: requestHeaders,
-                    redirect: "follow",
-                    cf: {
-                        insecureSkipVerify: true,
-                        allowUntrusted: true,
-                        validateCertificate: false
-                    }
-                })),
-                new Promise((_, reject) => setTimeout(() => reject(new Error('Request timed out')), 8000))
-            ]);
-            if (!response.ok) {
-                console.warn(`订阅请求失败: ${sub.url}, 状态: ${response.status}`);
+
+            // 【性能优化】使用缓存获取订阅内容
+            let text = await fetchSubscriptionWithCache(context.env, sub, requestHeaders, 8000);
+            if (!text) {
+                console.warn(`订阅请求失败或为空: ${sub.name || sub.url}`);
                 return '';
             }
-            let text = await response.text();
+
 
             // 智能内容类型检测 - 更精确的判断条件
             if (text.includes('proxies:') && text.includes('rules:')) {
@@ -4227,19 +4279,24 @@ async function handleUserSubscription(userToken, profileId, profileToken, reques
             return new Response('Invalid Profile Token', { status: 403 });
         }
 
-        // 2. 加载用户数据
+        // 2. 【性能优化】并行加载用户数据、订阅组和订阅源
         const storageAdapter = await getStorageAdapter(env);
-        const userDataRaw = await storageAdapter.get(`user:${userToken}`);
+        const [userDataRaw, allProfilesForMatch, allMisubs] = await Promise.all([
+            storageAdapter.get(`user:${userToken}`),
+            storageAdapter.get(KV_KEY_PROFILES),
+            storageAdapter.get(KV_KEY_SUBS)
+        ]);
+
+        // 处理用户数据
         if (!userDataRaw) {
             return new Response('订阅链接无效或已被删除', { status: 404 });
         }
-
         const userData = typeof userDataRaw === 'string' ? JSON.parse(userDataRaw) : userDataRaw;
 
-        // 3. 验证profileId匹配（支持 id 和 customId）
-        // 加载所有 profiles 以获取 customId 信息
-        const allProfilesForMatch = await storageAdapter.get(KV_KEY_PROFILES) || [];
-        const targetProfile = allProfilesForMatch.find(p => p.id === userData.profileId);
+        // 处理订阅组数据
+        const allProfiles = allProfilesForMatch || [];
+        const targetProfile = allProfiles.find(p => p.id === userData.profileId);
+
 
         // 检查 URL 中的 profileId 是否匹配用户数据中的 profile.id 或其 customId
         const profileIdMatches = profileId === userData.profileId ||
@@ -4250,7 +4307,7 @@ async function handleUserSubscription(userToken, profileId, profileToken, reques
         }
 
         // 3.1 🔧 加载订阅组配置（用于到期签名与反共享策略解析）
-        const profile = allProfilesForMatch.find(p =>
+        const profile = allProfiles.find(p =>
             (p.customId && p.customId === profileId) || p.id === profileId
         );
 
@@ -4513,12 +4570,12 @@ async function handleUserSubscription(userToken, profileId, profileToken, reques
             }
         }
 
-        // 8. 加载所有订阅和手动节点（profile已在反共享检测前加载）
-        const allMisubs = await storageAdapter.get(KV_KEY_SUBS) || [];
+        // 8. 使用已加载的订阅和手动节点（在步骤2中并行加载）
+        const allSubsData = allMisubs || [];
         const profileSubIds = new Set(profile.subscriptions || []);
         const profileNodeIds = new Set(profile.manualNodes || []);
 
-        const targetMisubs = allMisubs.filter(item => {
+        const targetMisubs = allSubsData.filter(item => {
             const isSubscription = item.url.startsWith('http');
             const isManualNode = !isSubscription;
             const belongsToProfile = (isSubscription && profileSubIds.has(item.id)) ||
