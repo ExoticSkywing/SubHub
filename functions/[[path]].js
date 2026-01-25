@@ -4344,10 +4344,51 @@ async function handleUserSubscription(userToken, profileId, profileToken, reques
             const isSurgeClient = /surge/i.test(userAgent);
             const isLoonClient = /loon/i.test(userAgent);
 
-            // 对于 Clash/Surge/Loon 客户端，返回 YAML/配置格式
+            // 到期提醒文案（统一定义，供各客户端使用）
+            const expiryMessages = [
+                '💖_感谢您的陪伴与信任',
+                '⚠️_您的计划即将中断',
+                '✨_若对我们的服务感到满意和舒适',
+                '🌐_官网： 1yo.cc',
+                '🔑_点击起飞台后跃迁坐标：pxkjvip （口令）'
+            ];
+
+            // 对于 Clash/Surge/Loon 客户端，返回 YAML/配置格式（包含完整文案）
             if (isClashClient) {
-                console.log(`[UserSub] Clash client detected, returning YAML error config`);
-                return generateErrorConfig('clash', '订阅已过期 - 官网 1yo.cc 口令 pxkjvip');
+                console.log(`[UserSub] Clash client detected, returning YAML error config with full messages`);
+                const proxiesYaml = expiryMessages.map((msg, i) =>
+                    `  - name: "${msg}"\n    type: ss\n    server: 127.0.0.1\n    port: ${i + 1}\n    cipher: aes-128-gcm\n    password: expired`
+                ).join('\n');
+                const proxyNames = expiryMessages.map(msg => `      - "${msg}"`).join('\n');
+                const clashConfig = `# ⚠️ 订阅已过期
+# 官网: 1yo.cc | 口令: pxkjvip
+
+port: 7890
+socks-port: 7891
+allow-lan: false
+mode: Rule
+log-level: info
+
+proxies:
+${proxiesYaml}
+
+proxy-groups:
+  - name: "🚫 订阅已过期"
+    type: select
+    proxies:
+${proxyNames}
+
+rules:
+  - MATCH,🚫 订阅已过期
+`;
+                return new Response(clashConfig, {
+                    status: 200,
+                    headers: {
+                        'Content-Type': 'text/yaml; charset=utf-8',
+                        'Cache-Control': 'no-store, no-cache',
+                        'Subscription-UserInfo': `upload=0; download=0; total=0; expire=${Math.floor(expiresAtTime / 1000)}`
+                    }
+                });
             }
             if (isSurgeClient) {
                 console.log(`[UserSub] Surge client detected, returning Surge error config`);
