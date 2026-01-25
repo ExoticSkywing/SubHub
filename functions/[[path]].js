@@ -4338,9 +4338,12 @@ async function handleUserSubscription(userToken, profileId, profileToken, reques
 
         if (expiresAtTime && now > expiresAtTime) {
             console.log(`[UserSub] User ${userToken} subscription expired!`);
-            const expiredNode = `trojan://00000000-0000-0000-0000-000000000000@127.0.0.1:443#${encodeURIComponent('订阅已过期')}`;
+            const expiredNode = `trojan://00000000-0000-0000-0000-000000000000@127.0.0.1:443#${encodeURIComponent('💖_感谢您的陪伴与信任')}`;
             const noticeNodes = [
-                `trojan://00000000-0000-0000-0000-000000000000@127.0.0.1:443#${encodeURIComponent('已失效请联系服务商')}`,
+                `trojan://00000000-0000-0000-0000-000000000000@127.0.0.1:443#${encodeURIComponent('⚠️_您的计划即将中断')}`,
+                `trojan://00000000-0000-0000-0000-000000000000@127.0.0.1:443#${encodeURIComponent('✨_若对我们的服务感到满意和舒适')}`,
+                `trojan://00000000-0000-0000-0000-000000000000@127.0.0.1:443#${encodeURIComponent('🌐_官网： 1yo.cc')}`,
+                `trojan://00000000-0000-0000-0000-000000000000@127.0.0.1:443#${encodeURIComponent('🔑_点击起飞台后跃迁坐标：pxkjvip （口令）')}`
             ];
 
             // 按订阅组设置决定是否附加自定义到期签名节点
