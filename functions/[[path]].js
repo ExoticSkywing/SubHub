@@ -4338,6 +4338,27 @@ async function handleUserSubscription(userToken, profileId, profileToken, reques
 
         if (expiresAtTime && now > expiresAtTime) {
             console.log(`[UserSub] User ${userToken} subscription expired!`);
+
+            // 检测客户端类型
+            const isClashClient = /clash|meta|mihomo/i.test(userAgent);
+            const isSurgeClient = /surge/i.test(userAgent);
+            const isLoonClient = /loon/i.test(userAgent);
+
+            // 对于 Clash/Surge/Loon 客户端，返回 YAML/配置格式
+            if (isClashClient) {
+                console.log(`[UserSub] Clash client detected, returning YAML error config`);
+                return generateErrorConfig('clash', '订阅已过期 - 官网 1yo.cc 口令 pxkjvip');
+            }
+            if (isSurgeClient) {
+                console.log(`[UserSub] Surge client detected, returning Surge error config`);
+                return generateErrorConfig('surge', '订阅已过期 - 官网 1yo.cc 口令 pxkjvip');
+            }
+            if (isLoonClient) {
+                console.log(`[UserSub] Loon client detected, returning Loon error config`);
+                return generateErrorConfig('loon', '订阅已过期 - 官网 1yo.cc 口令 pxkjvip');
+            }
+
+            // 对于其他客户端（如 Shadowrocket），返回 base64 格式
             const expiredNode = `trojan://00000000-0000-0000-0000-000000000000@127.0.0.1:443#${encodeURIComponent('💖_感谢您的陪伴与信任')}`;
             const noticeNodes = [
                 `trojan://00000000-0000-0000-0000-000000000000@127.0.0.1:443#${encodeURIComponent('⚠️_您的计划即将中断')}`,
