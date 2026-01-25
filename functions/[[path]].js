@@ -4349,7 +4349,7 @@ async function handleUserSubscription(userToken, profileId, profileToken, reques
                 '💖_感谢您的陪伴与信任',
                 '⚠️_您的计划即将中断',
                 '✨_若对我们的服务感到满意和舒适',
-                '🌐_官网： 1yo.cc',
+                '🌐_可访问官网： 1yo.cc',
                 '🔑_点击起飞台后跃迁坐标：pxkjvip （口令）'
             ];
 
