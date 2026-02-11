@@ -5,7 +5,7 @@
 
     <!-- 弹窗内容 -->
     <div class="relative w-full max-w-4xl bg-white dark:bg-gray-800 rounded-lg shadow-xl overflow-hidden max-h-[90vh] flex flex-col">
-      <div class="overflow-y-auto p-4 sm:p-6">
+      <div class="flex-1 overflow-y-auto p-4 sm:p-6">
         <!-- 加载状态 -->
         <div v-if="loading" class="flex justify-center py-12">
           <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
@@ -263,32 +263,33 @@
             <p v-else class="text-sm text-gray-500 dark:text-gray-400 text-center py-4">暂无城市</p>
           </div>
 
-          <!-- 操作按钮 -->
-          <div class="flex items-center justify-end gap-3 pt-4 border-t border-gray-200 dark:border-gray-700">
-            <button
-              v-if="userDetail.suspend"
-              @click="handleUnsuspend"
-              :disabled="saving"
-              class="px-4 py-2 text-sm font-medium text-white bg-green-600 hover:bg-green-700 rounded-lg transition-colors disabled:opacity-50"
-            >
-              解封用户
-            </button>
-            <button
-              v-if="hasChanges"
-              @click="handleSave"
-              :disabled="saving"
-              class="px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors disabled:opacity-50"
-            >
-              {{ saving ? '保存中...' : '保存修改' }}
-            </button>
-            <button
-              @click="emit('close')"
-              class="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-lg transition-colors"
-            >
-              关闭
-            </button>
-          </div>
         </div>
+      </div>
+
+      <!-- 底部固定操作栏 -->
+      <div v-if="userDetail" class="flex-none p-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 flex items-center justify-end gap-3">
+        <button
+          v-if="userDetail.suspend"
+          @click="handleUnsuspend"
+          :disabled="saving"
+          class="px-4 py-2 text-sm font-medium text-white bg-green-600 hover:bg-green-700 rounded-lg transition-colors disabled:opacity-50"
+        >
+          解封用户
+        </button>
+        <button
+          v-if="hasChanges"
+          @click="handleSave"
+          :disabled="saving"
+          class="px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors disabled:opacity-50"
+        >
+          {{ saving ? '保存中...' : '保存修改' }}
+        </button>
+        <button
+          @click="emit('close')"
+          class="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-600 rounded-lg transition-colors"
+        >
+          关闭
+        </button>
       </div>
     </div>
   </div>
