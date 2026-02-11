@@ -244,6 +244,7 @@
                       <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">城市名称</th>
                       <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">IP 地址</th>
                       <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">最后使用</th>
+                      <th class="px-4 py-2 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">操作</th>
                     </tr>
                   </thead>
                   <tbody class="divide-y divide-gray-200 dark:divide-gray-700">
@@ -255,6 +256,14 @@
                         <span v-else class="text-xs text-gray-400 dark:text-gray-500 italic">等待下次访问更新</span>
                       </td>
                       <td class="px-4 py-2 text-gray-600 dark:text-gray-400">{{ formatDate(city.lastSeen) }}</td>
+                      <td class="px-4 py-2 text-right">
+                        <button
+                          class="inline-flex items-center px-2 py-1 text-xs font-medium text-red-600 bg-red-50 hover:bg-red-100 dark:bg-red-900/30 dark:hover:bg-red-900/50 rounded whitespace-nowrap"
+                          @click="handleDeleteCity(city.id)"
+                        >
+                          删除城市
+                        </button>
+                      </td>
                     </tr>
                   </tbody>
                 </table>
@@ -297,7 +306,7 @@
 
 <script setup>
 import { ref, computed, watch, onMounted } from 'vue';
-import { fetchUserDetail, updateUser, unsuspendUser as apiUnsuspendUser, deleteUserDevice, resetUserDailyCount } from '../lib/api.js';
+import { fetchUserDetail, updateUser, unsuspendUser as apiUnsuspendUser, deleteUserDevice, deleteUserCity, resetUserDailyCount } from '../lib/api.js';
 import { useToastStore } from '../stores/toast.js';
 
 const props = defineProps({
@@ -413,6 +422,29 @@ async function handleDeleteDevice(deviceId) {
   } catch (error) {
     console.error('Delete device error:', error);
     showToast('❌ 解绑设备失败：' + error.message, 'error');
+  } finally {
+    saving.value = false;
+  }
+}
+
+// 删除城市记录
+async function handleDeleteCity(cityId) {
+  if (!cityId) return;
+  if (!confirm(`确定要删除城市记录 ${cityId} 吗？`)) return;
+
+  saving.value = true;
+  try {
+    const result = await deleteUserCity(props.token, cityId);
+    if (result.success) {
+      showToast('✅ 城市记录已删除', 'success');
+      await loadUserDetail();
+      emit('updated');
+    } else {
+      showToast('❌ ' + (result.message || '删除城市记录失败'), 'error');
+    }
+  } catch (error) {
+    console.error('Delete city error:', error);
+    showToast('❌ 删除城市记录失败：' + error.message, 'error');
   } finally {
     saving.value = false;
   }

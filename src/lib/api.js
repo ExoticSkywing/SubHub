@@ -254,7 +254,7 @@ export async function fetchUsers(filters = {}) {
         });
 
         const response = await fetch(`/api/users?${params}`);
-        
+
         if (!response.ok) {
             const errorData = await response.json().catch(() => ({}));
             const errorMessage = errorData.error || `服务器错误 (${response.status})`;
@@ -276,7 +276,7 @@ export async function fetchUsers(filters = {}) {
 export async function fetchUserDetail(token) {
     try {
         const response = await fetch(`/api/users/${token}`);
-        
+
         if (!response.ok) {
             const errorData = await response.json().catch(() => ({}));
             const errorMessage = errorData.error || `服务器错误 (${response.status})`;
@@ -301,7 +301,7 @@ export async function unsuspendUser(token) {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' }
         });
-        
+
         if (!response.ok) {
             const errorData = await response.json().catch(() => ({}));
             const errorMessage = errorData.error || errorData.message || `服务器错误 (${response.status})`;
@@ -331,7 +331,7 @@ export async function updateUser(token, updates) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(updates)
         });
-        
+
         if (!response.ok) {
             const errorData = await response.json().catch(() => ({}));
             const errorMessage = errorData.error || errorData.message || `服务器错误 (${response.status})`;
@@ -355,7 +355,7 @@ export async function deleteUser(token) {
         const response = await fetch(`/api/users/${token}`, {
             method: 'DELETE'
         });
-        
+
         if (!response.ok) {
             const errorData = await response.json().catch(() => ({}));
             const errorMessage = errorData.error || errorData.message || `服务器错误 (${response.status})`;
@@ -380,7 +380,7 @@ export async function deleteUserDevice(token, deviceId) {
         const response = await fetch(`/api/users/${token}/devices/${deviceId}`, {
             method: 'DELETE'
         });
-        
+
         if (!response.ok) {
             const errorData = await response.json().catch(() => ({}));
             const errorMessage = errorData.error || errorData.message || `服务器错误 (${response.status})`;
@@ -390,6 +390,31 @@ export async function deleteUserDevice(token, deviceId) {
         return await response.json();
     } catch (error) {
         console.error("Failed to delete user device:", error);
+        return { success: false, message: '网络请求失败，请检查网络连接' };
+    }
+}
+
+/**
+ * 删除单个城市记录
+ * @param {string} token - 用户 Token
+ * @param {string} cityId - 城市 ID
+ * @returns {Promise<Object>} - 操作结果
+ */
+export async function deleteUserCity(token, cityId) {
+    try {
+        const response = await fetch(`/api/users/${token}/cities/${encodeURIComponent(cityId)}`, {
+            method: 'DELETE'
+        });
+
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({}));
+            const errorMessage = errorData.error || errorData.message || `服务器错误 (${response.status})`;
+            return { success: false, message: errorMessage };
+        }
+
+        return await response.json();
+    } catch (error) {
+        console.error("Failed to delete user city:", error);
         return { success: false, message: '网络请求失败，请检查网络连接' };
     }
 }
@@ -408,7 +433,7 @@ export async function batchDeleteUsers(tokens) {
             },
             body: JSON.stringify({ tokens })
         });
-        
+
         if (!response.ok) {
             const errorData = await response.json().catch(() => ({}));
             const errorMessage = errorData.error || errorData.message || `服务器错误 (${response.status})`;

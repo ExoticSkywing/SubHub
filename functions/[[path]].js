@@ -1662,6 +1662,64 @@ async function handleApiRequest(request, env) {
         }
     }
 
+    // DELETE /api/users/:token/cities/:cityId - 删除单个城市记录
+    if (path.match(/^\/users\/[^\/]+\/cities\/[^\/]+$/) && request.method === 'DELETE') {
+        try {
+            const parts = path.split('/');
+            const token = parts[2];
+            const cityId = decodeURIComponent(parts[4]);
+            if (!token || !cityId) {
+                return new Response(JSON.stringify({
+                    success: false,
+                    error: 'Token and cityId are required'
+                }), { status: 400 });
+            }
+
+            const storageAdapter = await getStorageAdapter(env);
+            const userDataRaw = await storageAdapter.get(`user:${token}`);
+
+            if (!userDataRaw) {
+                return new Response(JSON.stringify({
+                    success: false,
+                    error: '用户不存在'
+                }), { status: 404 });
+            }
+
+            const userData = typeof userDataRaw === 'string' ? JSON.parse(userDataRaw) : userDataRaw;
+
+            // 遍历所有设备，删除目标城市
+            let found = false;
+            Object.values(userData.devices || {}).forEach(device => {
+                if (device.cities && device.cities[cityId]) {
+                    delete device.cities[cityId];
+                    found = true;
+                }
+            });
+
+            if (!found) {
+                return new Response(JSON.stringify({
+                    success: false,
+                    error: '城市记录不存在'
+                }), { status: 404 });
+            }
+
+            await storageAdapter.put(`user:${token}`, userData);
+
+            return new Response(JSON.stringify({
+                success: true,
+                message: '城市记录已删除'
+            }), {
+                headers: { 'Content-Type': 'application/json' }
+            });
+        } catch (error) {
+            console.error('[API Error /users/:token/cities/:cityId DELETE]', error);
+            return new Response(JSON.stringify({
+                success: false,
+                error: error.message
+            }), { status: 500 });
+        }
+    }
+
     // PATCH /api/users/:token - 修改用户信息
     if (path.match(/^\/users\/[^\/]+$/) && request.method === 'PATCH') {
         try {
