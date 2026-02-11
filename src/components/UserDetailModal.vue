@@ -211,7 +211,7 @@
                     </tr>
                   </thead>
                   <tbody class="divide-y divide-gray-200 dark:divide-gray-700">
-                    <tr v-for="device in userDetail.devices" :key="device.id" class="hover:bg-gray-100 dark:hover:bg-gray-800">
+                    <tr v-for="device in sortedDevices" :key="device.id" class="hover:bg-gray-100 dark:hover:bg-gray-800">
                       <td class="px-4 py-2"><code class="text-xs">{{ device.id }}</code></td>
                       <td class="px-4 py-2 text-gray-900 dark:text-white">{{ device.name }}</td>
                       <td class="px-4 py-2 text-gray-600 dark:text-gray-400">{{ formatDate(device.activatedAt) }}</td>
@@ -247,7 +247,7 @@
                     </tr>
                   </thead>
                   <tbody class="divide-y divide-gray-200 dark:divide-gray-700">
-                    <tr v-for="city in userDetail.cities" :key="city.id" class="hover:bg-gray-100 dark:hover:bg-gray-800">
+                    <tr v-for="city in sortedCities" :key="city.id" class="hover:bg-gray-100 dark:hover:bg-gray-800">
                       <td class="px-4 py-2"><code class="text-xs">{{ city.id }}</code></td>
                       <td class="px-4 py-2 text-gray-900 dark:text-white">{{ city.name }}</td>
                       <td class="px-4 py-2">
@@ -296,7 +296,7 @@
 </template>
 
 <script setup>
-import { ref, watch, onMounted } from 'vue';
+import { ref, computed, watch, onMounted } from 'vue';
 import { fetchUserDetail, updateUser, unsuspendUser as apiUnsuspendUser, deleteUserDevice, resetUserDailyCount } from '../lib/api.js';
 import { useToastStore } from '../stores/toast.js';
 
@@ -316,6 +316,16 @@ const saving = ref(false);
 const userDetail = ref(null);
 const profiles = ref([]);
 const hasChanges = ref(false);
+
+// 按最后使用时间降序排列设备和城市
+const sortedDevices = computed(() => {
+  if (!userDetail.value?.devices) return [];
+  return [...userDetail.value.devices].sort((a, b) => new Date(b.lastSeen || 0) - new Date(a.lastSeen || 0));
+});
+const sortedCities = computed(() => {
+  if (!userDetail.value?.cities) return [];
+  return [...userDetail.value.cities].sort((a, b) => new Date(b.lastSeen || 0) - new Date(a.lastSeen || 0));
+});
 
 const editData = ref({
   profileId: '',
